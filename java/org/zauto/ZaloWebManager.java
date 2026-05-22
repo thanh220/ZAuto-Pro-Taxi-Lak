@@ -168,12 +168,15 @@ public class ZaloWebManager {
                 "           for (var i = 0; i < allConvItems.length; i++) {" +
                 "               var el = allConvItems[i];" +
                 "               var rKey = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-                "               if (rKey && el[rKey]) {" +
-                "                   var p = el[rKey].memoizedProps || el[rKey].pendingProps;" +
-                "                   if (p && ((p.session && String(p.session.id) === convId) || (p.convId && String(p.convId) === convId))) {" +
-                "                       groupItem = el; break;" +
-                "                   }" +
-                "               }" +
+				"               if (rKey && el[rKey]) {" +
+				"                   var nodeVal = el[rKey];" +
+				"                   if (nodeVal) {" +
+				"                       var p = nodeVal.memoizedProps || nodeVal.pendingProps;" +
+				"                       if (p && ((p.session && String(p.session.id) === convId) || (p.convId && String(p.convId) === convId))) {" +
+				"                           groupItem = el; break;" +
+				"                       }" +
+				"                   }" +
+				"               }" +
                 "           }" +
                 "       }" +
 
@@ -642,11 +645,13 @@ public class ZaloWebManager {
             "               let keys = Object.keys(msgItemEl);" +
             "               let rK = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
             "               if (rK && msgItemEl[rK]) {" +
-            "                   let node = msgItemEl[rK];" +
-            "                   let p = node.memoizedProps || node.pendingProps;" +
-            "                   if(!convId && p && p.session) { convId = String(p.session.id); }" +
-            "                   if(!convId && p && p.convId) { convId = String(p.convId); }" +
-            "                   for(let step = 0; step < 8; step++) {" + 
+			"                   let node = msgItemEl[rK];" +
+			"                   if (node) {" +
+			"                       let p = node.memoizedProps || node.pendingProps;" +
+			"                       if(!convId && p && p.session) { convId = String(p.session.id); }" +
+			"                       if(!convId && p && p.convId) { convId = String(p.convId); }" +
+			"                   }" +
+			"                   for(let step = 0; step < 8; step++) {" + 
             "                       if(!node) break;" +
             "                       let currProps = node.memoizedProps || node.pendingProps;" +
             "                       if (currProps) {" +
