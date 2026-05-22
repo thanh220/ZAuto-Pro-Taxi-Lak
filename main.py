@@ -799,7 +799,7 @@ class ZAutoProApp(MDApp):
     APP_VERSION = 1.1  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
-    UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/ea7038735a001789f141690e1e836de5021c6fd4/update.json"
+    UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
     # ==========================================
 
     def toggle_radar(self):
@@ -1140,33 +1140,35 @@ class ZAutoProApp(MDApp):
                 logger.error(f"Reply Worker Crash: {traceback.format_exc()}")
                 time.sleep(1)
     def _audio_worker_loop(self):
-        """Worker lấy tin nhắn thoại ra phát. ĐÃ FIX LỖI LẶP TIN BẰNG CÁCH GIỮ NGUYÊN CACHE VĨNH VIỄN"""
+        """Worker lấy tin nhắn thoại ra phát - Sử dụng Set riêng biệt chống lặp, không nghẽn tin"""
+        if not hasattr(self, 'audio_seen_set'):
+            self.audio_seen_set = set()
+        if not hasattr(self, 'last_audio_clean_time'):
+            self.last_audio_clean_time = time.time()
+
         while getattr(self, 'app_running', True):
             try:
-                # Nhận biến duration từ hàng đợi
+                # Tự động dọn dẹp bộ nhớ Set sau mỗi 1 tiếng để tránh phình dung lượng RAM
+                if time.time() - self.last_audio_clean_time > 3600:
+                    self.audio_seen_set.clear()
+                    self.last_audio_clean_time = time.time()
+
                 conv_id, msg_id, cache_key, duration = self.audio_queue.get(timeout=1.0)
                 
+                # Tạo một khóa định danh duy nhất cho tin thoại dựa trên mã hội thoại và mã tin nhắn
+                audio_unique_key = f"{conv_id}_{msg_id}"
+                if audio_unique_key in self.audio_seen_set:
+                    self.audio_queue.task_done()
+                    continue # Đã phát rồi -> Bỏ qua ngay lập tức
+
                 if platform == 'android' and getattr(self, 'is_linked', False):
-                    from jnius import autoclass
-                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    # Thêm vào danh sách đã phát thành công
+                    self.audio_seen_set.add(audio_unique_key)
                     
-                    # Chọt nút Play phát âm thanh ngay lập tức
-                    autoclass('org.zauto.ZaloWebManager').playSpecificAudio(PythonActivity.mActivity, conv_id, msg_id)
-                    
-                    # LOGIC KIỂM TRA THÔNG MINH THEO YÊU CẦU:
-                    if duration > 0:
-                        sleep_time = duration + 2.0
-                        logger.info(f"Cơ chế 1: Tin thoại dài {duration}s -> Đợi {sleep_time}s")
-                    else:
-                        sleep_time = 7.0
-                        logger.info(f"Cơ chế 2 (Dự phòng): Lỗi giây thật -> Tự động chờ 7s")
-                    
-                    # Thực hiện chờ
-                    time.sleep(sleep_time)
-                    
-                # KHÔNG BAO GIỜ XÓA CACHE Ở ĐÂY NỮA. 
-                # Nhờ vậy, Zalo quét lại lần 2, lần 3 sẽ bị chặn đứng, dứt điểm lỗi lặp tin!
-                    
+                    from org.zauto import ZaloWebManager
+                    ZaloWebManager.playSpecificAudio(conv_id, msg_id, int(duration))
+                    logger.info(f"AudioWorker: Khích hoạt phát tin thoại {audio_unique_key} (Thời lượng: {duration}s)")
+                
                 self.audio_queue.task_done()
             except queue.Empty:
                 continue
@@ -1207,29 +1209,27 @@ class ZAutoProApp(MDApp):
         sw_filter_active = self.config_data.get('sw_filter', False)
 
         # ==============================================================
-        # 🛡️ BỘ LỌC THÔNG MINH BẬC NHẤT: CHỈ NHỚ TIN CUỐI CÙNG CỦA MỖI NHÓM
-        # Trị triệt để vòng lặp 2 giây của JS mà KHÔNG chặn chết nội dung trùng lặp
+        # 3. CHỐNG SPAM TIN TRÙNG (KẾT HỢP TIMESTAMP CHO TIN THOẠI)
         # ==============================================================
         if not hasattr(self, 'last_msg_per_group'):
-            self.last_msg_per_group = {} # Cấu trúc: {conversation_id: (msg_id, msg_hash, timestamp)}
+            self.last_msg_per_group = {}
 
-        # Tạo mã băm riêng cho nội dung tin nhắn để dễ đối chiếu
-        msg_hash = hashlib.md5(msg_clean.encode('utf-8')).hexdigest()[:12]
+        # Gộp ID hoặc nội dung tin kèm dấu vết thời gian độc nhất nếu là tin nhắn dạng động / thoại
+        hash_seed = msg_clean
+        if msg_id.startswith("TS_"): # ID đặc biệt sinh ra từ timestamp của React Fiber bên Java
+            hash_seed = f"{msg_clean}_{msg_id}"
+
+        msg_hash = hashlib.md5(hash_seed.encode('utf-8')).hexdigest()[:12]
 
         if conversation_id in self.last_msg_per_group:
             last_id, last_hash, last_time = self.last_msg_per_group[conversation_id]
-            
-            # BẢN VÁ: Nhận diện cả 2 tin đều là dạng đếm giờ (TIME_Vừa xong và TIME_1 phút)
             both_time_fallback = msg_id.startswith("TIME_") and last_id.startswith("TIME_")
             
-            # Nếu ID giống hệt HOẶC cả 2 đều là TIME_ (nhưng nội dung hash phải y hệt nhau)
             if (msg_id == last_id or both_time_fallback) and msg_hash == last_hash:
-                # Chỉ cho phép lặp lại nếu thời gian trôi qua quá lâu (ví dụ 1 tiếng - 3600s)
-                if current_time - last_time < 3600:
-                    return # CHẶN ĐỨNG BÓNG ĐÈ
+                if time.time() - last_time < 3600.0:
+                    return # Bị trùng thực sự -> Bỏ qua
 
-        # Nếu vượt qua bộ lọc -> Đây là tin mới thực sự của nhóm. Lưu nó lại làm tin cuối cùng!
-        self.last_msg_per_group[conversation_id] = (msg_id, msg_hash, current_time)
+        self.last_msg_per_group[conversation_id] = (msg_id, msg_hash, time.time())
 
         # ==============================================================
         # ✅ PHÂN LUỒNG XỬ LÝ (VOICE / TEXT) SAU KHI ĐÃ LỌC SẠCH BÓNG ĐÈ
@@ -1869,43 +1869,40 @@ class ZAutoProApp(MDApp):
             except Exception as e:
                 logger.error(f"Lỗi dọn dẹp on_stop: {e}")
     def check_for_update(self):
-        """Hỏi trạm phát sóng xem có bản nào mới hơn không"""
-        try:
-            # Dùng UrlRequest của Kivy để chạy ngầm, không làm đơ màn hình
-            UrlRequest(
-                self.UPDATE_URL, 
-                on_success=self._on_update_received, 
-                timeout=5
-            )
-        except Exception as e:
-            logger.error(f"Lỗi kiểm tra cập nhật: {e}")
+        """Hàm tự động gửi yêu cầu kiểm tra phiên bản từ server Gist"""
+        def on_success(req, result):
+            try:
+                # Ép kiểu dữ liệu an toàn để tránh crash
+                server_ver = float(result.get("version", 1.0))
+                update_note = str(result.get("note", "Vui lòng cập nhật phiên bản mới để tiếp tục sử dụng."))
+                apk_download_url = str(result.get("url", ""))
+                
+                # Nếu bản trên mạng lớn hơn bản trong máy
+                if server_ver > float(self.APP_VERSION):
+                    # Kích hoạt popup hiển thị trên luồng chính UI
+                    Clock.schedule_once(lambda dt: self.show_update_popup(server_ver, update_note, apk_download_url))
+            except Exception as e:
+                logger.error(f"Lỗi xử lý dữ liệu update: {e}")
 
-    def _on_update_received(self, request, result):
-        """Xử lý khi nhận được data từ trạm phát"""
-        try:
-            # Result tự động được Kivy parse thành Dict (JSON)
-            server_version = float(result.get("version", self.APP_VERSION))
-            download_url = result.get("url", "")
-            update_note = result.get("note", "Bản cập nhật mới để app chạy mượt hơn.")
+        def on_error(req, error):
+            logger.error(f"Không thể kết nối máy chủ update: {error}")
 
-            # Nếu phiên bản trên mạng lớn hơn phiên bản trong máy khách -> Bắt cập nhật
-            if server_version > self.APP_VERSION:
-                self.show_update_popup(server_version, update_note, download_url)
-        except Exception as e:
-            logger.error(f"Lỗi đọc data cập nhật: {e}")
+        # Gửi request ngầm không lo treo app
+        UrlRequest(self.UPDATE_URL, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
 
     def show_update_popup(self, new_ver, note, url):
-        """Hiện bảng ép khách hàng tải bản mới"""
+        """Hiển thị bảng thông báo bắt buộc cập nhật"""
         from kivy.uix.popup import Popup
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.label import Label
         from kivy.uix.button import Button
         from kivy.metrics import dp
+        import webbrowser
 
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         
         content.add_widget(Label(
-            text=f"Phiên bản mới: v{new_ver}",
+            text=f"PHIÊN BẢN MỚI: v{new_ver}",
             font_size='18sp', bold=True, color=(0.1, 0.5, 0.8, 1),
             size_hint_y=None, height=dp(30)
         ))
@@ -1921,20 +1918,21 @@ class ZAutoProApp(MDApp):
             size_hint_y=None, height=dp(50),
             background_normal='', background_color=(0.1, 0.6, 0.2, 1), bold=True
         )
-        # Khi bấm nút -> Chuyển hướng trình duyệt đt tải file APK
+        
+        # Khi bấm nút -> Gọi trình duyệt tải file APK
         btn_update.bind(on_release=lambda x: webbrowser.open(url))
         content.add_widget(btn_update)
 
-        # Tạo Popup (Không cho bấm ra ngoài để ép phải cập nhật)
+        # Tạo Popup chặn không cho đóng (bắt buộc phải update mới dùng được)
         update_popup = Popup(
-            title="CÓ BẢN NÂNG CẤP BẮT BUỘC!",
+            title="HỆ THỐNG YÊU CẦU CẬP NHẬT",
             content=content,
-            size_hint=(0.85, None), height=dp(250),
-            auto_dismiss=False, # Khóa chết màn hình, ép cập nhật
-            title_color=(1, 0, 0, 1), separator_color=(1, 0, 0, 1),
-            background_color=(1, 1, 1, 1)
+            size_hint=(0.85, None), height=dp(280),
+            auto_dismiss=False, # Khóa không cho bấm ra ngoài để thoát
+            background="", background_color=(1, 1, 1, 1),
+            title_color=(0, 0, 0, 1), separator_color=(0.1, 0.5, 0.8, 1)
         )
-        update_popup.open()            
+        update_popup.open()
 
 if __name__ == '__main__':
     ZAutoProApp().run()
