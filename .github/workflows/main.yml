@@ -70,6 +70,12 @@ jobs:
           rm -rf .buildozer
           rm -rf bin
 
+      - name: Debug File Tree
+        run: |
+          echo "========== DEBUG: CURRENT FILE STRUCTURE =========="
+          find . -maxdepth 4 -not -path '*/.*'
+          echo "=================================================="
+
       - name: Validate Project
         run: |
           echo "========== PYTHON CHECK =========="
