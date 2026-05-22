@@ -621,44 +621,47 @@ public class ZaloWebManager {
             // HÀM QUÉT SIDEBAR (ĐÃ FIX ZALO ĐỔI GIAO DIỆN & TÌM ĐÚNG ID TIN)
             "   function scanConvItem(msgItemEl) {" +
             "       try {" +
-            "           let convItem = msgItemEl.querySelector('.conv-item') || msgItemEl;" + // Đã gỡ bỏ .gridv2
+            "           let convItem = msgItemEl.querySelector('.conv-item') || msgItemEl;" + 
             "           if(!convItem) return;" +
-            // ĐOẠN MỚI:
-			"           let nameEl = convItem.querySelector('.conv-item-title__name, [class*=\"name\"]');" +
-			"           let bodyEl = convItem.querySelector('.conv-item-body, [class*=\"snippet\"], [class*=\"message-text\"]');" +
-			"           if(!nameEl) return;" + // Chỉ bắt buộc tìm thấy Tên nhóm
-			"           let groupName = (nameEl.textContent || nameEl.innerText || '').trim();" +
-			"           let msgText = bodyEl ? (bodyEl.textContent || bodyEl.innerText || '').trim() : '';" +
-            "           let convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
+            
+            "           let nameEl = convItem.querySelector('.conv-item-title__name, [class*=\"name\"]');" +
+            "           let bodyEl = convItem.querySelector('.conv-item-body, [class*=\"snippet\"], [class*=\"message-text\"]');" +
+            "           if(!nameEl) return;" + 
+            "           let groupName = (nameEl.textContent || nameEl.innerText || '').trim();" +
+            "           let msgText = bodyEl ? (bodyEl.textContent || bodyEl.innerText || '').trim() : '';" +
+            
+            // --- ĐÃ GỘP KHAI BÁO ID VÀO ĐÂY, XÓA DÒNG let convId CŨ GÂY LỖI ---
+            "           let realMsgId = ''; var fullTxt = ''; let convId = '';" +
             
             // DEEP BYPASS: QUÉT VÉT CẠN MỌI TẦNG REACT FIBER (8 TẦNG) ĐỂ LỘT TRẦN ID BỊ GIẤU
-            "           let realMsgId = ''; var fullTxt = ''; let convId = '';" +
-			"           try {" +
-			"               convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
-			"               let id1 = msgItemEl.getAttribute('data-msg-id') || (msgItemEl.dataset ? msgItemEl.dataset.msgId : '');" +
-			"               if (id1 && id1.length > 5) realMsgId = id1;" +
-			"               let keys = Object.keys(msgItemEl);" +
-			"               let rK = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-			"               if (rK && msgItemEl[rK]) {" +
-			"                   let node = msgItemEl[rK];" +
-			"                   let p = node.memoizedProps || node.pendingProps;" +
-			"                   if(!convId && p && p.session) { convId = String(p.session.id); }" +
-			"                   if(!convId && p && p.convId) { convId = String(p.convId); }" +
-			"                   for(let step = 0; step < 8; step++) {" +
-			"                       if(!node) break;" +
-			"                       let currProps = node.memoizedProps || node.pendingProps;" +
-			"                       if (currProps) {" +
-			"                           let o = currProps.msg || currProps.message || currProps.data || currProps.item || currProps;" +
-			"                           if (o && typeof o === 'object') {" +
-			"                               let foundId = o.msgId || o.messageId || o.cliMsgId;" +
-			"                               if (!foundId && o.timestamp) foundId = 'TS_' + o.timestamp;" + // ÉP KHẢM TIMESTAMP CHO TIN THOẠI KHÔNG ID
-			"                               if (!realMsgId && foundId && String(foundId).length > 5) { realMsgId = String(foundId); }" +
-			"                           }" +
-			"                       }" +
-			"                       node = node.return;" +
-			"                   }" +
-			"               }" +
-			"           } catch(err) {}" +
+            "           try {" +
+            "               convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
+            "               let id1 = msgItemEl.getAttribute('data-msg-id') || (msgItemEl.dataset ? msgItemEl.dataset.msgId : '');" +
+            "               if (id1 && id1.length > 5) realMsgId = id1;" +
+            
+            "               let keys = Object.keys(msgItemEl);" +
+            "               let rK = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+            "               if (rK && msgItemEl[rK]) {" +
+            "                   let node = msgItemEl[rK];" +
+            "                   let p = node.memoizedProps || node.pendingProps;" +
+            "                   if(!convId && p && p.session) { convId = String(p.session.id); }" +
+            "                   if(!convId && p && p.convId) { convId = String(p.convId); }" +
+            "                   for(let step = 0; step < 8; step++) {" + 
+            "                       if(!node) break;" +
+            "                       let currProps = node.memoizedProps || node.pendingProps;" +
+            "                       if (currProps) {" +
+            "                           let o = currProps.msg || currProps.message || currProps.data || currProps.item || currProps;" +
+            "                           if (o && typeof o === 'object') {" +
+            "                               let foundId = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
+            "                               if (!foundId && o.timestamp) foundId = 'TS_' + o.timestamp;" + 
+            "                               if (!realMsgId && foundId && String(foundId).length > 5) { realMsgId = String(foundId); }" +
+            "                               if (!fullTxt && typeof o.content === 'string' && o.content.trim() !== '') { fullTxt = o.content; }" +
+            "                           }" +
+            "                       }" +
+            "                       node = node.return;" +
+            "                   }" +
+            "               }" +
+            "           } catch(err) {}" +
             
             "           if (fullTxt && fullTxt.length > msgText.length && !fullTxt.startsWith('{\"')) {" +
             "               msgText = fullTxt.trim();" +
