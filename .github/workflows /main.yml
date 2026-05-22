@@ -1,0 +1,118 @@
+name: Build ZAuto VIP Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      PYTHON_VERSION: "3.11"
+      JAVA_VERSION: "17"
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache Gradle & Pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.cache/pip
+          key: ${{ runner.os }}-zauto-v24-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-zauto-v24-
+
+      - name: Install System Packages
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            zip unzip git openjdk-17-jdk \
+            autoconf automake libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            libtinfo5 cmake libffi-dev libssl-dev ccache \
+            build-essential patch libjpeg-dev libpng-dev \
+            ffmpeg libsdl2-dev libsdl2-image-dev \
+            libsdl2-mixer-dev libsdl2-ttf-dev
+
+      - name: Install Python Packages
+        run: |
+          python -m pip install --upgrade pip==23.2.1
+          pip install \
+            setuptools==69.5.1 \
+            wheel==0.43.0 \
+            Cython==0.29.36 \
+            buildozer==1.5.0
+
+      - name: Prepare Android Environment
+        run: |
+          mkdir -p ~/.android
+          touch ~/.android/repositories.cfg
+
+      - name: Clean Local Workspace
+        run: |
+          rm -rf .buildozer
+          rm -rf bin
+
+      - name: Validate Project
+        run: |
+          echo "========== PYTHON CHECK =========="
+          find . -type f -name "*.py" \
+            -not -path "*/\.buildozer/*" \
+            -not -path "*/bin/*" \
+            -exec python -m py_compile {} \;
+
+          echo "========== REQUIRED FILES =========="
+          FILES=(
+            "main.py"
+            "buildozer.spec"
+            "manifest_services.xml"
+            "java/org/zauto/ZaloForegroundService.java"
+            "java/org/zauto/ZaloWebManager.java"
+          )
+
+          for FILE in "${FILES[@]}"; do
+            if [ ! -f "$FILE" ]; then
+              echo "::error::Missing file: $FILE"
+              exit 1
+            fi
+          done
+
+      - name: Build APK
+        run: |
+          export PATH=$PATH:~/.local/bin
+          export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
+          buildozer android debug
+
+      - name: Verify APK
+        run: |
+          echo "========== APK OUTPUT =========="
+          ls -lah bin/
+          APK_COUNT=$(find bin -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq "0" ]; then
+            echo "::error::APK NOT FOUND!"
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZAuto_VIP_APK
+          path: bin/*.apk
