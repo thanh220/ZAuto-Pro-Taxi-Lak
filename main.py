@@ -796,7 +796,7 @@ class RideCard(MDCard):
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 1.2  
+    APP_VERSION = 1.3  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1164,10 +1164,19 @@ class ZAutoProApp(MDApp):
                 if platform == 'android' and getattr(self, 'is_linked', False):
                     # Thêm vào danh sách đã phát thành công
                     self.audio_seen_set.add(audio_unique_key)
-                    
-                    from org.zauto import ZaloWebManager
-                    ZaloWebManager.playSpecificAudio(conv_id, msg_id, int(duration))
+
+                    from jnius import autoclass
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    # Phải gọi đủ 3 tham số (Activity, conv_id, msg_id)
+                    autoclass('org.zauto.ZaloWebManager').playSpecificAudio(PythonActivity.mActivity, conv_id, msg_id)
                     logger.info(f"AudioWorker: Khích hoạt phát tin thoại {audio_unique_key} (Thời lượng: {duration}s)")
+                    
+                    # Kế thừa logic chờ thời gian thực của bạn
+                    if int(duration) > 0:
+                        sleep_time = int(duration) + 2.0
+                    else:
+                        sleep_time = 7.0
+                    time.sleep(sleep_time)
                 
                 self.audio_queue.task_done()
             except queue.Empty:
