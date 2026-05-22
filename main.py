@@ -796,7 +796,7 @@ class RideCard(MDCard):
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 1.3  
+    APP_VERSION = 2.0  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1881,67 +1881,43 @@ class ZAutoProApp(MDApp):
         """Hàm tự động gửi yêu cầu kiểm tra phiên bản từ server Gist"""
         def on_success(req, result):
             try:
-                # Ép kiểu dữ liệu an toàn để tránh crash
-                server_ver = float(result.get("version", 1.0))
-                update_note = str(result.get("note", "Vui lòng cập nhật phiên bản mới để tiếp tục sử dụng."))
-                apk_download_url = str(result.get("url", ""))
+                import json
+                
+                # --- SỬA LỖI CHÍ MẠNG Ở ĐÂY ---
+                # Kiểm tra nếu result là chuỗi (do GitHub trả về) thì ép kiểu nó thành Dictionary
+                if isinstance(result, str):
+                    data = json.loads(result)
+                else:
+                    data = result
+
+                # Bây giờ dùng data.get() mới hoàn toàn an toàn
+                server_ver = float(data.get("version", 1.0))
+                update_note = str(data.get("note", "Vui lòng cập nhật phiên bản mới để tiếp tục sử dụng."))
+                apk_download_url = str(data.get("url", ""))
                 
                 # Nếu bản trên mạng lớn hơn bản trong máy
                 if server_ver > float(self.APP_VERSION):
                     # Kích hoạt popup hiển thị trên luồng chính UI
-                    Clock.schedule_once(lambda dt: self.show_update_popup(server_ver, update_note, apk_download_url))
+                    from kivy.clock import Clock
+                    Clock.schedule_once(lambda dt: self.show_update_popup(server_ver, update_note, apk_download_url), 0.5)
             except Exception as e:
                 logger.error(f"Lỗi xử lý dữ liệu update: {e}")
 
         def on_error(req, error):
             logger.error(f"Không thể kết nối máy chủ update: {error}")
 
-        # Gửi request ngầm không lo treo app
-        UrlRequest(self.UPDATE_URL, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
-
-    def show_update_popup(self, new_ver, note, url):
-        """Hiển thị bảng thông báo bắt buộc cập nhật"""
-        from kivy.uix.popup import Popup
-        from kivy.uix.boxlayout import BoxLayout
-        from kivy.uix.label import Label
-        from kivy.uix.button import Button
-        from kivy.metrics import dp
-        import webbrowser
-
-        content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-        
-        content.add_widget(Label(
-            text=f"PHIÊN BẢN MỚI: v{new_ver}",
-            font_size='18sp', bold=True, color=(0.1, 0.5, 0.8, 1),
-            size_hint_y=None, height=dp(30)
-        ))
-        
-        content.add_widget(Label(
-            text=note, text_size=(dp(250), None), halign='center', valign='middle',
-            color=(0.2, 0.2, 0.2, 1)
-        ))
-
-        # Nút Cập Nhật
-        btn_update = Button(
-            text="TẢI VÀ CÀI ĐẶT NGAY", 
-            size_hint_y=None, height=dp(50),
-            background_normal='', background_color=(0.1, 0.6, 0.2, 1), bold=True
-        )
-        
-        # Khi bấm nút -> Gọi trình duyệt tải file APK
-        btn_update.bind(on_release=lambda x: webbrowser.open(url))
-        content.add_widget(btn_update)
-
-        # Tạo Popup chặn không cho đóng (bắt buộc phải update mới dùng được)
-        update_popup = Popup(
-            title="HỆ THỐNG YÊU CẦU CẬP NHẬT",
-            content=content,
-            size_hint=(0.85, None), height=dp(280),
-            auto_dismiss=False, # Khóa không cho bấm ra ngoài để thoát
-            background="", background_color=(1, 1, 1, 1),
-            title_color=(0, 0, 0, 1), separator_color=(0.1, 0.5, 0.8, 1)
-        )
-        update_popup.open()
+        try:
+            import time
+            from kivy.network.urlrequest import UrlRequest
+            
+            # --- SỬA LỖI CACHE Ở ĐÂY ---
+            # Thêm mốc thời gian vào cuối link để ép điện thoại luôn tải file mới nhất, không bị dính cache
+            no_cache_url = f"{self.UPDATE_URL}?t={int(time.time())}"
+            
+            # Gửi request ngầm không lo treo app
+            UrlRequest(no_cache_url, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
+        except Exception as e:
+            logger.error(f"Lỗi gọi UrlRequest: {e}")
 
 if __name__ == '__main__':
     ZAutoProApp().run()
