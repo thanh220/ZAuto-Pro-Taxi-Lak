@@ -151,14 +151,37 @@ public class ZaloWebManager {
                 "   var targetTime = '" + safeTime + "';" +
 
                 // =========================================================
-                // BƯỚC 1: VÀO ĐÚNG NHÓM CẦN CHỐT
+                // BƯỚC 1: VÀO ĐÚNG NHÓM CẦN CHỐT (BẢN KẾT HỢP THÔNG MINH CAO CẤP)
                 // =========================================================
                 "   function openGroup(callback) {" +
-                "       var groupItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item')" +
-                "                    || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]');" +
-                "       if (!groupItem) {" +
-                "           callback(false); return;" +
+                "       if (!convId || convId === '') {" +
+                "           console.log('ZAuto: convId bi rong, tien hanh chot truc tiep tren o chat hien tai!');" +
+                "           callback(true); return;" + // Vẫn cho đi tiếp luồng gửi thay vì return chặn đứng!
                 "       }" +
+                "       var groupItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item')" +
+                "                    || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]')" +
+                "                    || document.querySelector('[id*=\"' + convId + '\"]');" +
+                
+                // Giải pháp dự phòng tìm kiếm theo thuộc tính React Fiber nếu Zalo ẩn thuộc tính HTML ngoài cùng
+                "       if (!groupItem) {" +
+                "           var allConvItems = document.querySelectorAll('.msg-item, .conv-item');" +
+                "           for (var i = 0; i < allConvItems.length; i++) {" +
+                "               var el = allConvItems[i];" +
+                "               var rKey = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+                "               if (rKey && el[rKey]) {" +
+                "                   var p = el[rKey].memoizedProps || el[rKey].pendingProps;" +
+                "                   if (p && ((p.session && String(p.session.id) === convId) || (p.convId && String(p.convId) === convId))) {" +
+                "                       groupItem = el; break;" +
+                "                   }" +
+                "               }" +
+                "           }" +
+                "       }" +
+
+                "       if (!groupItem) {" +
+                "           console.log('ZAuto: Khong tim thay GroupItem tren UI, thu chot o chat dang mo.');" +
+                "           callback(true); return;" + // Khống chế fallback: Mở lỗi vẫn thử gửi thay vì chết đứng
+                "       }" +
+                
                 "       groupItem.scrollIntoView({block: 'center'});" +
                 "       groupItem.click();" +
                 "       var key = Object.keys(groupItem).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
@@ -166,7 +189,7 @@ public class ZaloWebManager {
                 "           var handler = groupItem[key].onClick || (groupItem[key].return && groupItem[key].return.memoizedProps && groupItem[key].return.memoizedProps.onClick);" +
                 "           if (handler) handler({preventDefault:()=>{}, stopPropagation:()=>{}});" +
                 "       }" +
-                "       setTimeout(() => callback(true), 2000);" + // Chờ 2000ms như bạn phân tích cho Android 10
+                "       setTimeout(() => callback(true), 2500);" + // Tăng timeout lên 2500ms đảm bảo tải kịp ô chat
                 "   }" +
 
                 // =========================================================
@@ -609,30 +632,33 @@ public class ZaloWebManager {
             "           let convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
             
             // DEEP BYPASS: QUÉT VÉT CẠN MỌI TẦNG REACT FIBER (8 TẦNG) ĐỂ LỘT TRẦN ID BỊ GIẤU
-            "           let realMsgId = ''; var fullTxt = '';" +
-            "           try {" +
-            "               let id1 = msgItemEl.getAttribute('data-msg-id') || (msgItemEl.dataset ? msgItemEl.dataset.msgId : '');" +
-            "               if (id1 && id1.length > 5) realMsgId = id1;" +
-            
-            "               let keys = Object.keys(msgItemEl);" +
-            "               let rK = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-            "               if (rK && msgItemEl[rK]) {" +
-            "                   let node = msgItemEl[rK];" +
-            "                   for(let step = 0; step < 8; step++) {" + // Tăng độ sâu lên 8 tầng
-            "                       if(!node) break;" +
-            "                       let p = node.memoizedProps || node.pendingProps;" +
-            "                       if (p) {" +
-            "                           let o = p.msg || p.message || p.data || p.item || p;" +
-            "                           if (o && typeof o === 'object') {" +
-            "                               let foundId = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
-            "                               if (!realMsgId && foundId && String(foundId).length > 5) { realMsgId = String(foundId); }" +
-            "                               if (!fullTxt && typeof o.content === 'string' && o.content.trim() !== '') { fullTxt = o.content; }" +
-            "                           }" +
-            "                       }" +
-            "                       node = node.return;" +
-            "                   }" +
-            "               }" +
-            "           } catch(err) {}" +
+            "           let realMsgId = ''; var fullTxt = ''; let convId = '';" +
+			"           try {" +
+			"               convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
+			"               let id1 = msgItemEl.getAttribute('data-msg-id') || (msgItemEl.dataset ? msgItemEl.dataset.msgId : '');" +
+			"               if (id1 && id1.length > 5) realMsgId = id1;" +
+			"               let keys = Object.keys(msgItemEl);" +
+			"               let rK = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+			"               if (rK && msgItemEl[rK]) {" +
+			"                   let node = msgItemEl[rK];" +
+			"                   let p = node.memoizedProps || node.pendingProps;" +
+			"                   if(!convId && p && p.session) { convId = String(p.session.id); }" +
+			"                   if(!convId && p && p.convId) { convId = String(p.convId); }" +
+			"                   for(let step = 0; step < 8; step++) {" +
+			"                       if(!node) break;" +
+			"                       let currProps = node.memoizedProps || node.pendingProps;" +
+			"                       if (currProps) {" +
+			"                           let o = currProps.msg || currProps.message || currProps.data || currProps.item || currProps;" +
+			"                           if (o && typeof o === 'object') {" +
+			"                               let foundId = o.msgId || o.messageId || o.cliMsgId;" +
+			"                               if (!foundId && o.timestamp) foundId = 'TS_' + o.timestamp;" + // ÉP KHẢM TIMESTAMP CHO TIN THOẠI KHÔNG ID
+			"                               if (!realMsgId && foundId && String(foundId).length > 5) { realMsgId = String(foundId); }" +
+			"                           }" +
+			"                       }" +
+			"                       node = node.return;" +
+			"                   }" +
+			"               }" +
+			"           } catch(err) {}" +
             
             "           if (fullTxt && fullTxt.length > msgText.length && !fullTxt.startsWith('{\"')) {" +
             "               msgText = fullTxt.trim();" +
