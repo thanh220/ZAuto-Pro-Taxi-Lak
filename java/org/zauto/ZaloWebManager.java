@@ -243,25 +243,30 @@ public class ZaloWebManager {
                 "           window.zMessenger.sendMessage(req);" +
                 "           ZAutoBridge.onLoginSuccess('Đã chốt Auto API:', '');" +
                 "       } else {" +
-                // 3B. Nếu mất API -> Dùng UI Click đúp & TypeAndSend (Code tối ưu của bạn)
+                // 3B. Nếu mất API -> Dùng UI Click đúp & TypeAndSend (ĐÃ FIX CHUẨN TỌA ĐỘ ZALO)
                 "           if (targetNode) {" +
                 "               setTimeout(() => {" +
-                                    // 1. LẤY KHUNG BAO NGOÀI CÙNG (CẢ HÀNG NGANG) THAY VÌ LẤY CHỮ
+                                    // 1. LẤY KHUNG BÊN NGOÀI ĐỂ BẮN SỰ KIỆN REACT
                 "                   var wrapperNode = targetNode.closest('.chat-message, .msg-item, [class*=\"message-view\"]') || targetNode;" +
-                "                   var rect = wrapperNode.getBoundingClientRect();" +
+                
+                                    // 2. LẤY KÍCH THƯỚC CỦA ĐÚNG CÁI BÓNG CHAT ĐỂ LÀM CỘT MỐC
+                "                   var bubbleNode = targetNode.querySelector('.card--text, .card-content, div[class*=\"bubble\"], div[class*=\"card-text\"]') || targetNode;" +
+                "                   var rect = bubbleNode.getBoundingClientRect();" +
                                     
-                                    // 2. TỌA ĐỘ BẤM: Ép click vào khoảng trống bên phải (cách mép phải 40px)
-                "                   var clickX = rect.right - 40; var clickY = rect.top + (rect.height / 2);" +
+                                    // 3. TỌA ĐỘ BẤM: Cộng thêm 30px từ mép phải của bóng chat -> Chọt chuẩn vào vùng trống bên cạnh
+                "                   var clickX = rect.right + 30; var clickY = rect.top + (rect.height / 2);" +
                 "                   var dblEvt = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, clientX: clickX, clientY: clickY });" +
                 
-                                    // 3. BẮN SỰ KIỆN CLICK VÀO VÙNG TRỐNG
+                                    // 4. BẮN SỰ KIỆN CLICK VÀO KHUNG NGOÀI CÙNG (Nơi Zalo đặt Event Listener)
                 "                   wrapperNode.dispatchEvent(dblEvt);" + 
                 
-                                    // 4. BẮN REACT FIBER VÀO WRAPPER (Zalo thường gắn Event ở thẻ ngoài cùng)
+                                    // 5. TÌM VÀ BẮN REACT FIBER BỔ TRỢ
                 "                   var rKey = Object.keys(wrapperNode).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
                 "                   if (rKey && wrapperNode[rKey]) {" +
                 "                       var dblHandler = wrapperNode[rKey].onDoubleClick || (wrapperNode[rKey].return && wrapperNode[rKey].return.memoizedProps && wrapperNode[rKey].return.memoizedProps.onDoubleClick);" +
-                "                       if (dblHandler) dblHandler({ preventDefault:()=>{}, stopPropagation:()=>{}, clientX: clickX, clientY: clickY });" +
+                "                       if (dblHandler) {" +
+                "                           dblHandler({ preventDefault:()=>{}, stopPropagation:()=>{}, clientX: clickX, clientY: clickY });" +
+                "                       }" +
                 "                   }" +
                 "                   setTimeout(typeAndSendUI, 800);" + // Chờ UI Reply mở ra
                 "               }, 500);" + // Chờ scrollIntoView xong
