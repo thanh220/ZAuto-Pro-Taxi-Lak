@@ -225,16 +225,33 @@ public class ZaloWebManager {
                 "       return targetNode;" +
                 "   }" +
 
-                // =========================================================
-                // BƯỚC 3: DÙNG API NỘI BỘ (VŨ KHÍ TỐI THƯỢNG) HOẶC UI FALLBACK CỦA BẠN
-                // =========================================================
                 "   function executeSend(targetNode) {" +
-                "       let realQuoteId = targetMsgId;" +
-                "       if (targetNode) {" +
-                "           targetNode.scrollIntoView({block: 'center', behavior: 'smooth'});" +
-                "           let nid = targetNode.getAttribute('data-msg-id') || targetNode.id || '';" +
-                "           if(nid.length > 4) realQuoteId = nid.replace('msg-', '').replace('msg_', '');" +
-                "       }" +
+				"       let realQuoteId = targetMsgId;" +
+				"       if (targetNode) {" +
+				"           targetNode.scrollIntoView({block: 'center', behavior: 'smooth'});" +
+				"           // Tìm data-msg-id từ chính node hoặc quét sâu vào các node con" +
+				"           let nid = targetNode.getAttribute('data-msg-id') || targetNode.id || '';" +
+				"           if (!nid || nid.length <= 4) {" +
+				"               let deepNode = targetNode.querySelector('[data-msg-id]');" +
+				"               if (deepNode) nid = deepNode.getAttribute('data-msg-id') || '';" +
+				"           }" +
+				"           if (!nid || nid.length <= 4) {" +
+				"               // Quét React Fiber sâu để lấy msgId thật từ props" +
+				"               let allNodes = [targetNode].concat(Array.from(targetNode.querySelectorAll('*')));" +
+				"               for (let n of allNodes) {" +
+				"                   let rk = Object.keys(n).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+				"                   if (rk && n[rk]) {" +
+				"                       let p = n[rk].memoizedProps || n[rk].pendingProps || {};" +
+				"                       let o = p.msg || p.message || p.data || p.item || p;" +
+				"                       if (o && typeof o === 'object') {" +
+				"                           let fid = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
+				"                           if (fid && String(fid).length > 4) { nid = String(fid); break; }" +
+				"                       }" +
+				"                   }" +
+				"               }" +
+				"           }" +
+				"           if(nid.length > 4) realQuoteId = nid.replace('msg-', '').replace('msg_', '');" +
+				"       }" +
 
                 // 3A. Thử bắn bằng API Ngầm trước (Tỉ lệ thành công 100% trong nền)
                 "       if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
@@ -249,12 +266,15 @@ public class ZaloWebManager {
                                     // 1. LẤY KHUNG BÊN NGOÀI ĐỂ BẮN SỰ KIỆN REACT
                 "                   var wrapperNode = targetNode.closest('.chat-message, .msg-item, [class*=\"message-view\"]') || targetNode;" +
                 
-                                    // 2. LẤY KÍCH THƯỚC CỦA ĐÚNG CÁI BÓNG CHAT ĐỂ LÀM CỘT MỐC
-                "                   var bubbleNode = targetNode.querySelector('.card--text, .card-content, div[class*=\"bubble\"], div[class*=\"card-text\"]') || targetNode;" +
-                "                   var rect = bubbleNode.getBoundingClientRect();" +
-                                    
-                                    // 3. TỌA ĐỘ BẤM: Cộng thêm 30px từ mép phải của bóng chat -> Chọt chuẩn vào vùng trống bên cạnh
-                "                   var clickX = rect.right + 30; var clickY = rect.top + (rect.height / 2);" +
+                "                   var bubbleNode = targetNode.querySelector('.card--text, .card-content, div[class*=\\\"bubble\\\"], div[class*=\\\"card-text\\\"]') || targetNode;" +
+				"                   var rect = bubbleNode.getBoundingClientRect();" +
+				"                   // Lấy toàn bộ chiều rộng viewport để tính vùng trống bên cạnh bóng chat" +
+				"                   var viewportW = window.innerWidth || document.documentElement.clientWidth;" +
+				"                   // Bấm vào vùng trống bên PHẢI bóng chat, cách mép phải bóng 40px nhưng không vượt quá viewport" +
+				"                   var clickX = Math.min(rect.right + 40, viewportW - 10);" +
+				"                   // Nếu bóng chat nằm sát mép phải (tin của mình) thì bấm vào bên TRÁI" +
+				"                   if (rect.right > viewportW * 0.6) clickX = Math.max(rect.left - 40, 10);" +
+				"                   var clickY = rect.top + (rect.height / 2);" +
                 "                   var dblEvt = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, clientX: clickX, clientY: clickY });" +
                 
                                     // 4. BẮN SỰ KIỆN CLICK VÀO KHUNG NGOÀI CÙNG (Nơi Zalo đặt Event Listener)
@@ -276,16 +296,17 @@ public class ZaloWebManager {
                 "       }" +
                 "   }" +
 
-// =========================================================
+                // =========================================================
                 // BƯỚC 4: GÕ VÀ GỬI (NẾU API XỊT)
                 // =========================================================
                 "   function typeAndSendUI() {" +
-                "       var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]') || document.querySelector('.chat-input');" +
-                "       if (!input) return;" +
-                "       input.focus(); input.innerHTML = safeReply;" +
-                "       input.dispatchEvent(new Event('input', {bubbles: true}));" +
-                "       input.dispatchEvent(new Event('change', {bubbles: true}));" +
-                "       input.blur();" + // CHẶN BÀN PHÍM: Hủy focus ngay lập tức để tát tắt bàn phím ảo của Android
+				"       var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]') || document.querySelector('.chat-input');" +
+				"       if (!input) return;" +
+				"       input.focus(); input.innerHTML = safeReply;" +
+				"       input.dispatchEvent(new Event('input', {bubbles: true}));" +
+				"       input.dispatchEvent(new Event('change', {bubbles: true}));" +
+				"       input.blur();" +
+				"       if(window.AndroidInterface) { try { window.AndroidInterface.hideKeyboard(); } catch(e) {} }" +
                 "       setTimeout(() => {" +
                 "           var btnSend = null;" +
                 "           var selectors = ['#chat-input-container-id .send-msg-btn', '.fa-Sent-msg_24_Line', '[data-translate-title=\"STR_SEND\"]', '.send-msg-btn'];" +
@@ -573,12 +594,12 @@ public class ZaloWebManager {
             "               } else {" +
                         // 3. NẾU BỊ CHẶN API -> DÙNG PHƯƠNG ÁN UI (ĐẬP PHÍM)
             "                   let input = document.getElementById('richInput');" +
-            "                   if(input) {" +
-            "                       input.focus();" +
-            "                       input.innerHTML = '';" +
-            "                       document.execCommand('insertText', false, text);" +
-            "                       input.dispatchEvent(new Event('input', {bubbles:true}));" + 
-            "                       input.blur();" + // CHẶN BÀN PHÍM: Hủy focus ngay lập tức để Android không kịp nhô bàn phím lên
+			"                   if(input) {" +
+			"                       input.focus();" +
+			"                       input.innerHTML = '';" +
+			"                       document.execCommand('insertText', false, text);" +
+			"                       input.dispatchEvent(new Event('input', {bubbles:true}));" +
+			"                       input.blur();" +
             "                       let attempts = 0;" +
             
             "                       let trySend = setInterval(() => {" +
