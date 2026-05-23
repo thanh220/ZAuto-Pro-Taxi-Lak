@@ -81,13 +81,13 @@ android.manifest_queries = com.zing.zalo
 # =====================================================
 # PERMISSIONS
 # =====================================================
-android.permissions = INTERNET,WAKE_LOCK,FOREGROUND_SERVICE,FOREGROUND_SERVICE_DATA_SYNC,POST_NOTIFICATIONS,ACCESS_NETWORK_STATE,ACCESS_WIFI_STATE,RECEIVE_BOOT_COMPLETED,SYSTEM_ALERT_WINDOW,REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+android.permissions = INTERNET,WAKE_LOCK,FOREGROUND_SERVICE,FOREGROUND_SERVICE_DATA_SYNC,POST_NOTIFICATIONS,ACCESS_NETWORK_STATE,ACCESS_WIFI_STATE,RECEIVE_BOOT_COMPLETED,SYSTEM_ALERT_WINDOW,REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,REQUEST_INSTALL_PACKAGES
 
 # =====================================================
 # EXTRA MANIFEST
 # =====================================================
 android.extra_manifest_application = %(source.dir)s/manifest_services.xml
-
+android.extra_manifest_application_arguments = <provider android:name="androidx.core.content.FileProvider" android:authorities="org.zauto.zauto.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths"/></provider>
 # =====================================================
 # SERVICES
 # =====================================================
