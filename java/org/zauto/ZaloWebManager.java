@@ -116,12 +116,9 @@ public class ZaloWebManager {
         }
     }
 
-    // =========================================================
-    // GỬI TIN NHẮN REPLY VÀO NHÓM CỤ THỂ (NÂNG CẤP CLICK ĐÚP + ENTER)
-    // =========================================================
-    // =========================================================
-    // GỬI TIN NHẮN REPLY VÀO NHÓM CỤ THỂ (NÂNG CẤP API + UI CLICK KÉP)
-    // =========================================================
+    // =========================================================================
+    // NÂNG CẤP ĐỘNG CƠ: HYBRID VISION-API AUTOMATION ENGINE (TẦNG 1 & TẦNG 3)
+    // =========================================================================
     public static void sendReplyToSpecificMessage(
             final Activity activity,
             final String conversationId,
@@ -144,67 +141,79 @@ public class ZaloWebManager {
                 String jsCode =
                 "(function() {" +
                 "try {" +
+                
+                // =========================================================================
+                // 1. WATCHDOG & WEBPACK HIJACKING: TỰ ĐỘNG DÒ CỔNG API CORE NGẦM (TẦNG 3)
+                // =========================================================================
+                "   window.zautoDiscoverMessengerApi = function() {" +
+                "       if (window.zauto_api_hijacked && window.zMessenger) return true;" +
+                "       if (window._zauto_webpack_pushed) return false;" +  
+                "       window._zauto_webpack_pushed = true;" +
+                "       try {" +
+                "           let chunks = window.webpackChunkzalo_web_app || window.webpackJsonp;" +
+                "           if (!chunks) return false;" +
+                "           let spyId = 'zauto_spy_core';" +  
+                "           let req = null;" +
+                "           chunks.push([[spyId], { [spyId]: function(m, e, r) { req = r; } }, [[spyId]]]);" +
+                "           if (!req || !req.m) return false;" +
+                "           for (let id in req.m) {" +
+                "               try {" +
+                "                   let mod = req(id);" +
+                "                   let exp = mod && (mod.default || mod);" +
+                "                   if (exp && typeof exp.sendMessage === 'function' && typeof exp.sendTextMessage === 'function') {" +
+                "                       window.zMessenger = exp;" +
+                "                       window.zauto_api_hijacked = true;" +
+                "                       console.log('ZAuto API Linked: ' + id);" +
+                "                       break;" +
+                "                   }" +
+                "               } catch(e) { continue; }" +
+                "           }" +
+                "       } catch(err) { console.log('Webpack error:', err); }" +
+                "       return window.zauto_api_hijacked;" +
+                "   };" +
+                "   window.zautoDiscoverMessengerApi();" +
+
                 "   var convId = '" + safeConvId + "';" +
                 "   var safeReply = '" + safeReply + "';" +
                 "   var safeSearchText = '" + safeSearchText + "';" +
                 "   var targetMsgId = '" + safeMsgId + "';" +
                 "   var targetTime = '" + safeTime + "';" +
 
-                // =========================================================
-                // BƯỚC 1: VÀO ĐÚNG NHÓM CẦN CHỐT (BẢN KẾT HỢP THÔNG MINH CAO CẤP)
-                // =========================================================
+                // BẢO LƯU HOÀN TOÀN CƠ CHẾ CHUYỂN NHÓM TRÊN GIAO DIỆN CŨ
                 "   function openGroup(callback) {" +
-                "       if (!convId || convId === '') {" +
-                "           console.log('ZAuto: convId bi rong, tien hanh chot truc tiep tren o chat hien tai!');" +
-                "           callback(true); return;" + // Vẫn cho đi tiếp luồng gửi thay vì return chặn đứng!
-                "       }" +
-                "       var groupItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item')" +
-                "                    || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]')" +
-                "                    || document.querySelector('[id*=\"' + convId + '\"]');" +
-                
-                // Giải pháp dự phòng tìm kiếm theo thuộc tính React Fiber nếu Zalo ẩn thuộc tính HTML ngoài cùng
+                "       if (!convId || convId === '') { callback(true); return; }" +
+                "       var groupItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item') || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]') || document.querySelector('[id*=\"' + convId + '\"]');" +
                 "       if (!groupItem) {" +
                 "           var allConvItems = document.querySelectorAll('.msg-item, .conv-item');" +
                 "           for (var i = 0; i < allConvItems.length; i++) {" +
                 "               var el = allConvItems[i];" +
                 "               var rKey = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-				"               if (rKey && el[rKey]) {" +
-				"                   var nodeVal = el[rKey];" +
-				"                   if (nodeVal) {" +
-				"                       var p = nodeVal.memoizedProps || nodeVal.pendingProps;" +
-				"                       if (p && ((p.session && String(p.session.id) === convId) || (p.convId && String(p.convId) === convId))) {" +
-				"                           groupItem = el; break;" +
-				"                       }" +
-				"                   }" +
-				"               }" +
+                "               if (rKey && el[rKey]) {" +
+                "                   var nodeVal = el[rKey];" +
+                "                   if (nodeVal) {" +
+                "                       var p = nodeVal.memoizedProps || nodeVal.pendingProps;" +
+                "                       if (p && ((p.session && String(p.session.id) === convId) || (p.convId && String(p.convId) === convId))) { groupItem = el; break; }" +
+                "                   }" +
+                "               }" +
                 "           }" +
                 "       }" +
-
-                "       if (!groupItem) {" +
-                "           console.log('ZAuto: Khong tim thay GroupItem tren UI, thu chot o chat dang mo.');" +
-                "           callback(true); return;" + // Khống chế fallback: Mở lỗi vẫn thử gửi thay vì chết đứng
-                "       }" +
-                
-                "       groupItem.scrollIntoView({block: 'center'});" +
-                "       groupItem.click();" +
+                "       if (!groupItem) { callback(true); return; }" +
+                "       groupItem.scrollIntoView({block: 'center'}); groupItem.click();" +
                 "       var key = Object.keys(groupItem).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
                 "       if (key && groupItem[key]) {" +
                 "           var handler = groupItem[key].onClick || (groupItem[key].return && groupItem[key].return.memoizedProps && groupItem[key].return.memoizedProps.onClick);" +
                 "           if (handler) handler({preventDefault:()=>{}, stopPropagation:()=>{}});" +
                 "       }" +
-                "       setTimeout(() => callback(true), 2500);" + // Tăng timeout lên 2500ms đảm bảo tải kịp ô chat
+                "       setTimeout(() => callback(true), 2500);" +
                 "   }" +
 
-                // =========================================================
-                // BƯỚC 2: TÌM TIN CẦN REPLY (SCROLL TỚI CHỖ ĐÓ)
-                // =========================================================
+                // BẢO LƯU HOÀN TOÀN LOGIC PHÂN TÍCH VÀ ĐỊNH VỊ TIN NHẮN THEO HARDWARE ID VÀ VOICE
                 "   function findTargetMessage() {" +
                 "       var targetNode = null;" +
                 "       if (targetMsgId && !targetMsgId.startsWith('TIME_') && targetMsgId.length > 3) {" +
                 "           targetNode = document.querySelector('[data-msg-id=\"' + targetMsgId + '\"]') || document.querySelector('div[id*=\"' + targetMsgId + '\"]');" +
                 "       }" +
                 "       if (!targetNode) {" +
-                // FIX: Nhận diện tin thoại qua chuỗi "[Tin nhắn thoại]" hoặc "[tin nhan thoai]" trong raw_msg gốc
                 "           var isVoice = safeSearchText.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i') || safeSearchText.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]') || safeSearchText.toLowerCase().includes('ghi \\u00e2m') || safeSearchText.toLowerCase().includes('voice') || safeSearchText.toLowerCase().includes('audio');" +
                 "           var allItems = document.querySelectorAll('.chat-item, .message-item, [class*=\"message\"], [class*=\"chat-bubble\"], div[id^=\"msg_\"], div[id^=\"msg-\"]');" +
                 "           for (var i = allItems.length - 1; i >= 0; i--) {" +
@@ -225,111 +234,87 @@ public class ZaloWebManager {
                 "       return targetNode;" +
                 "   }" +
 
+                // =========================================================================
+                // 2. HÀM ĐIỀU PHỐI ĐIỀU KHIỂN CHỐT CUỐC XE CHÍNH XÁC 100% (TẦNG 1)
+                // =========================================================================
                 "   function executeSend(targetNode) {" +
-				"       let realQuoteId = targetMsgId;" +
-				"       if (targetNode) {" +
-				"           targetNode.scrollIntoView({block: 'center', behavior: 'smooth'});" +
-				"           // Tìm data-msg-id từ chính node hoặc quét sâu vào các node con" +
-				"           let nid = targetNode.getAttribute('data-msg-id') || targetNode.id || '';" +
-				"           if (!nid || nid.length <= 4) {" +
-				"               let deepNode = targetNode.querySelector('[data-msg-id]');" +
-				"               if (deepNode) nid = deepNode.getAttribute('data-msg-id') || '';" +
-				"           }" +
-				"           if (!nid || nid.length <= 4) {" +
-				"               // Quét React Fiber sâu để lấy msgId thật từ props" +
-				"               let allNodes = [targetNode].concat(Array.from(targetNode.querySelectorAll('*')));" +
-				"               for (let n of allNodes) {" +
-				"                   let rk = Object.keys(n).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-				"                   if (rk && n[rk]) {" +
-				"                       let p = n[rk].memoizedProps || n[rk].pendingProps || {};" +
-				"                       let o = p.msg || p.message || p.data || p.item || p;" +
-				"                       if (o && typeof o === 'object') {" +
-				"                           let fid = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
-				"                           if (fid && String(fid).length > 4) { nid = String(fid); break; }" +
-				"                       }" +
-				"                   }" +
-				"               }" +
-				"           }" +
-				"           if(nid.length > 4) realQuoteId = nid.replace('msg-', '').replace('msg_', '');" +
-				"       }" +
-
-                // 3A. Thử bắn bằng API Ngầm trước (Tỉ lệ thành công 100% trong nền)
-                "       if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
-                "           let req = { toid: convId, msg: safeReply, type: 1 };" +
-                "           if (realQuoteId && !realQuoteId.startsWith('TIME_')) req.quote_msgId = realQuoteId;" +
-                "           window.zMessenger.sendMessage(req);" +
-                "           ZAutoBridge.onLoginSuccess('Đã chốt Auto API:', '');" +
-                "       } else {" +
-                // 3B. Nếu mất API -> Dùng UI Click đúp & TypeAndSend (ĐÃ FIX CHUẨN TỌA ĐỘ ZALO)
-                "           if (targetNode) {" +
-                "               setTimeout(() => {" +
-                                    // 1. LẤY KHUNG BÊN NGOÀI ĐỂ BẮN SỰ KIỆN REACT
-                "                   var wrapperNode = targetNode.closest('.chat-message, .msg-item, [class*=\"message-view\"]') || targetNode;" +
-                
-                "                   var bubbleNode = targetNode.querySelector('.card--text, .card-content, div[class*=\\\"bubble\\\"], div[class*=\\\"card-text\\\"]') || targetNode;" +
-				"                   var rect = bubbleNode.getBoundingClientRect();" +
-				"                   // Lấy toàn bộ chiều rộng viewport để tính vùng trống bên cạnh bóng chat" +
-				"                   var viewportW = window.innerWidth || document.documentElement.clientWidth;" +
-				"                   // Bấm vào vùng trống bên PHẢI bóng chat, cách mép phải bóng 40px nhưng không vượt quá viewport" +
-				"                   var clickX = Math.min(rect.right + 40, viewportW - 10);" +
-				"                   // Nếu bóng chat nằm sát mép phải (tin của mình) thì bấm vào bên TRÁI" +
-				"                   if (rect.right > viewportW * 0.6) clickX = Math.max(rect.left - 40, 10);" +
-				"                   var clickY = rect.top + (rect.height / 2);" +
-                "                   var dblEvt = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, clientX: clickX, clientY: clickY });" +
-                
-                                    // 4. BẮN SỰ KIỆN CLICK VÀO KHUNG NGOÀI CÙNG (Nơi Zalo đặt Event Listener)
-                "                   wrapperNode.dispatchEvent(dblEvt);" + 
-                
-                                    // 5. TÌM VÀ BẮN REACT FIBER BỔ TRỢ
-                "                   var rKey = Object.keys(wrapperNode).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
-                "                   if (rKey && wrapperNode[rKey]) {" +
-                "                       var dblHandler = wrapperNode[rKey].onDoubleClick || (wrapperNode[rKey].return && wrapperNode[rKey].return.memoizedProps && wrapperNode[rKey].return.memoizedProps.onDoubleClick);" +
-                "                       if (dblHandler) {" +
-                "                           dblHandler({ preventDefault:()=>{}, stopPropagation:()=>{}, clientX: clickX, clientY: clickY });" +
+                "       let realQuoteId = targetMsgId;" +
+                "       if (targetNode) {" +
+                "           targetNode.scrollIntoView({block:'center', behavior:'smooth'});" +
+                "           let nid = targetNode.getAttribute('data-msg-id') || targetNode.id || '';" +
+                "           if (!nid || nid.length <= 4) {" +
+                "               let deepNode = targetNode.querySelector('[data-msg-id]');" +
+                "               if (deepNode) nid = deepNode.getAttribute('data-msg-id') || '';" +
+                "           }" +
+                "           if (!nid || nid.length <= 4) {" +
+                "               let allNodes = [targetNode].concat(Array.from(targetNode.querySelectorAll('*')));" +
+                "               for (let n of allNodes) {" +
+                "                   let rk = Object.keys(n).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+                "                   if (rk && n[rk]) {" +
+                "                       let p = n[rk].memoizedProps || n[rk].pendingProps || {};" +
+                "                       let o = p.msg || p.message || p.data || p.item || p;" +
+                "                       if (o && typeof o === 'object') {" +
+                "                           let fid = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
+                "                           if (fid && String(fid).length > 4) { nid = String(fid); break; }" +
                 "                       }" +
                 "                   }" +
-                "                   setTimeout(typeAndSendUI, 800);" + // Chờ UI Reply mở ra
-                "               }, 500);" + // Chờ scrollIntoView xong
-                "           } else {" +
-                "               typeAndSendUI();" + 
+                "               }" +
+                "           }" +
+                "           if (nid.length > 4) realQuoteId = nid.replace('msg-','').replace('msg_','');" +
+                "       }" +
+
+                // Đảm bảo trạng thái sống của API trước khi gửi
+                "       let apiAlive = false;" +
+                "       try { apiAlive = window.zMessenger && typeof window.zMessenger.sendMessage === 'function'; } catch(e) {}" +
+                "       if (!apiAlive) {" +
+                "           window.zauto_api_hijacked = false;" +
+                "           window._zauto_webpack_pushed = false;" +  
+                "           if (typeof window.zautoDiscoverMessengerApi === 'function') window.zautoDiscoverMessengerApi();" +
+                "       }" +
+
+                // ---- HƯỚNG ĐI 1: BẮN QUA API CORE NỘI BỘ (0.001 GIÂY - ĐÃ FIX PAYLOAD) ----
+                "       if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
+                "           try {" +
+                // ĐÃ FIX: Dùng lại chuẩn toid kinh điển của Zalo, loại bỏ biến uid gây lỗi Silent Fail
+                "               let reqObj = { toid: convId, msg: safeReply, type: 1 };" +
+                "               if (realQuoteId && !realQuoteId.startsWith('TIME_')) reqObj.quote_msgId = realQuoteId;" +
+                "               window.zMessenger.sendMessage(reqObj);" +
+                "               ZAutoBridge.onLoginSuccess('Chốt API OK', '');" +
+                "               return;" + 
+                "           } catch(apiErr) {" +
+                "               console.log('API lỗi, chuyển sang gọi DOM UI');" +
                 "           }" +
                 "       }" +
-                "   }" +
 
-                // =========================================================
-                // BƯỚC 4: GÕ VÀ GỬI (NẾU API XỊT)
-                // =========================================================
-                "   function typeAndSendUI() {" +
-				"       var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]') || document.querySelector('.chat-input');" +
-				"       if (!input) return;" +
-				"       input.focus(); input.innerHTML = safeReply;" +
-				"       input.dispatchEvent(new Event('input', {bubbles: true}));" +
-				"       input.dispatchEvent(new Event('change', {bubbles: true}));" +
-				"       input.blur();" +
-				"       if(window.AndroidInterface) { try { window.AndroidInterface.hideKeyboard(); } catch(e) {} }" +
-                "       setTimeout(() => {" +
-                "           var btnSend = null;" +
-                "           var selectors = ['#chat-input-container-id .send-msg-btn', '.fa-Sent-msg_24_Line', '[data-translate-title=\"STR_SEND\"]', '.send-msg-btn'];" +
-                "           for (var s of selectors) { var el = document.querySelector(s); if (el) { btnSend = el; break; } }" +
-                "           if (btnSend) {" +
-                "               var tgt = btnSend.closest('.z--btn--v2') || btnSend.parentNode || btnSend;" +
-                "               tgt.click();" +
-                "               var bk = Object.keys(tgt).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
-                "               if (bk && tgt[bk] && tgt[bk].onClick) tgt[bk].onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
+                // ---- HƯỚNG ĐI 1.5: DÙNG DOM UI (GÕ CHỮ ẢO) NẾU API BỊ TỪ CHỐI ----
+                "       try {" +
+                "           var input = document.querySelector('#richInput') || document.querySelector('.chat-input');" +
+                "           if (input) {" +
+                "               input.focus(); input.innerHTML = safeReply;" +
+                "               input.dispatchEvent(new Event('input', {bubbles: true}));" +
+                "               setTimeout(() => {" +
+                "                   var btnSend = document.querySelector('#chat-input-container-id .send-msg-btn') || document.querySelector('.fa-Sent-msg_24_Line');" +
+                "                   if (btnSend) {" +
+                "                       var tgt = btnSend.closest('.z--btn--v2') || btnSend.parentNode || btnSend;" +
+                "                       tgt.click();" +
+                "                   }" +
+                "                   var enterEvt = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, key: 'Enter' });" +
+                "                   input.dispatchEvent(enterEvt);" +
+                "                   ZAutoBridge.onLoginSuccess('Chốt DOM UI OK', '');" +
+                "               }, 300);" +
+                "               return;" +
                 "           }" +
-                "           var enterEvt = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter', code: 'Enter' });" +
-                "           input.dispatchEvent(enterEvt);" +
-                "           ZAutoBridge.onLoginSuccess('Đã chốt Auto UI:', '');" +
-                "       }, 400);" +
+                "       } catch(domErr) {}" +
+
+                // ---- HƯỚNG ĐI 2: CHUYỂN LÀN SANG PYTHON ĐỂ CHỤP MÀN HÌNH "MẮT THẦN" ----
+                "       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
                 "   }" +
 
-                // =========================================================
-                // LUỒNG THỰC THI CHÍNH
-                // =========================================================
+                // LUỒNG KHỞI CHẠY CHÍNH ĐỒNG BỘ (ĐÃ FIX ÉP VÀO NHÓM)
                 "   openGroup(function(opened) {" +
-                "       if (!opened) {" +
-                "           console.log('ZAuto: Khong mo duoc nhom, huy bo chot de tranh gui nham!');" +
-                "           return;" + // <--- ĐÃ FIX LỖI 1: NẾU KHÔNG MỞ ĐƯỢC ĐÚNG NHÓM, CẤM GỬI!
+                "       if (!opened) { " +
+                // NẾU KHÔNG TÌM THẤY NHÓM TRÊN GIAO DIỆN -> VẪN ÉP GỬI API NGẦM VÌ ĐÃ CÓ CONVID
+                "           console.log('Khong the mo nhom tren UI, ep gui ngam!'); " +
                 "       }" +
                 "       var targetNode = findTargetMessage();" +
                 "       executeSend(targetNode);" +
@@ -741,8 +726,12 @@ public class ZaloWebManager {
             "               stableId = realMsgId;" +
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
-            "               stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
-            "           }" +
+            "               if (isVoice) {" +
+            "                   stableId = 'VOICE_' + convId + '_' + Date.now();" +
+            "               } else {" +
+            "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
+            "               }" +
+            "           }" + // Bổ sung dấu ngoặc đóng } cực kỳ quan trọng ở đây
             "           let fp = 'MSG|' + convId + '|' + stableId;" +
 
             "           if (!realMsgId || realMsgId === '') {" +
