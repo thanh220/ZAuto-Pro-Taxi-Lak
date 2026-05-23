@@ -7,6 +7,8 @@ import gc
 import random
 import sqlite3
 import logging
+import cv2
+import numpy as np
 from kivy.network.urlrequest import UrlRequest
 import webbrowser
 from logging.handlers import RotatingFileHandler
@@ -792,7 +794,75 @@ class RideCard(MDCard):
     group_text = StringProperty()
     msg_text = StringProperty()
     time_text = StringProperty()
+class ZAutoHybridVisionEngine:
+    def __init__(self):
+        # Thiết lập dải phổ màu HSV nhận diện nền bong bóng chat của Zalo
+        self.lower_bound = np.array([0, 0, 200])
+        self.upper_bound = np.array([180, 30, 255])
 
+    def process_screenshot_and_double_click(self, screenshot_path):
+        """
+        Mắt nhìn AI: Phân tích ma trận điểm ảnh, định vị tọa độ khoảng trống lề phải
+        cạnh bong bóng chat cuối cùng để phát lệnh click đúp vật lý.
+        """
+        try:
+            if not os.path.exists(screenshot_path): return False
+            
+            # Đọc ảnh chụp màn hình thô
+            img = cv2.imread(screenshot_path)
+            if img is None: return False
+            
+            height, width, _ = img.shape
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(hsv, self.lower_bound, self.upper_bound)
+            
+            # Quét tìm các đa giác biên (Contours) của tin nhắn hiển thị trên màn hình
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            target_bubble = None
+            max_y_axis = 0
+            
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                # Bộ lọc loại bỏ thành phần nhiễu giao diện (Kích thước tối thiểu)
+                if w > 100 and h > 40:
+                    if y > max_y_axis: # Tìm tin nhắn mới nhất nằm dưới cùng màn hình
+                        max_y_axis = y
+                        target_bubble = (x, y, w, h)
+            
+            success = False
+            if target_bubble:
+                x, y, w, h = target_bubble
+                # CƠ CHẾ ĐỊNH VỊ: Đẩy tọa độ dịch sang phải 30px tính từ viền ngoài bóng chat
+                click_x = x + w + 30
+                
+                # Chống tràn biên lề phải màn hình thiết bị
+                if click_x > width - 10: click_x = width - 40
+                click_y = y + (h / 2)
+                
+                # PHÁT LỆNH ĐIỀU KHIỂN: Gửi sự kiện Touch vật lý trực tiếp qua Runtime Android
+                from jnius import autoclass
+                Runtime = autoclass('java.lang.Runtime')
+                runtime = Runtime.getRuntime()
+                
+                # Thực hiện mô phỏng hai lệnh bấm liên tiếp giãn cách 60ms (Dblclick vật lý)
+                runtime.exec(f"input tap {int(click_x)} {int(click_y)}")
+                time.sleep(0.06)
+                runtime.exec(f"input tap {int(click_x)} {int(click_y)}")
+                success = True
+
+            # ==============================================================
+            # CRITICAL OPTIMIZATION: GIẢI PHÓNG BỘ NHỚ MA TRẬN ẢNH TỨC THÌ
+            # ==============================================================
+            del img, hsv, mask, contours
+            gc.collect() 
+            
+            return success
+                
+        except Exception as e:
+            logger.error(f"Lỗi động cơ thị giác Vision Engine: {e}")
+            gc.collect() # Dọn dẹp cả khi có lỗi
+        return False
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
@@ -1235,7 +1305,7 @@ class ZAutoProApp(MDApp):
                 last_id, last_hash, last_time = self.last_msg_per_group[conversation_id]
                 both_time_fallback = msg_id.startswith("TIME_") and last_id.startswith("TIME_")
                 if (msg_id == last_id or both_time_fallback) and msg_hash == last_hash:
-                    if time.time() - last_time < 3600.0:
+                    if time.time() - last_time < 300.0:
                         return # Tin text trùng -> Bỏ qua
 
         # Luôn cập nhật mốc mới nhất (cả voice lẫn text)
@@ -1367,14 +1437,37 @@ class ZAutoProApp(MDApp):
                     action = parts[0]
                     
                     if action == 'LOGIN_SUCCESS':
+                        # --- TÍCH HỢP ĐÓN LỆNH HYBRID VISION (ĐÃ FIX LỖI CHỤP MÀN HÌNH) ---
+                        if len(parts) > 1 and parts[1] == 'TRIGGER_VISION_FALLBACK':
+                            quote_msgId = parts[2] if len(parts) > 2 else ""
+                            
+                            # FIX 1: BẮT BUỘC CHUYỂN SANG TAB ZALO ĐỂ WEBVIEW HIỆN LÊN MÀN HÌNH
+                            Clock.schedule_once(lambda dt: self.root.ids.bottom_nav.switch_tab('tab_zalo'), 0)
+                            
+                            def execute_vision_engine(dt):
+                                screenshot_file = "/data/data/org.zauto.zauto/files/screen_vision.png"
+                                if platform == 'android':
+                                    # Chụp ảnh khi màn hình Zalo đã hiển thị
+                                    os.system(f"screencap -p {screenshot_file}")
+                                    vision_engine = ZAutoHybridVisionEngine()
+                                    success = vision_engine.process_screenshot_and_double_click(screenshot_file)
+                                    
+                                    if success:
+                                        logger.info("Chốt cuốc thành công bằng Vision Engine!")
+                                    else:
+                                        logger.error("Vision Engine: Không tìm thấy bong bóng Zalo!")
+                            
+                            # Đợi 1.2 giây để Android vẽ xong giao diện Zalo Web rồi mới chụp ảnh
+                            Clock.schedule_once(execute_vision_engine, 1.2)
+                            continue # Thoát luồng, không chạy lệnh Login bên dưới
+
+                        # --- LOGIC LOGIN GỐC (GIỮ NGUYÊN) ---
                         self.is_linked = True
                         zalo_name = parts[1] if len(parts) > 1 else ""
                         zalo_avatar = parts[2] if len(parts) > 2 else ""
                         if zalo_name: self.config_data['zalo_name'] = zalo_name
                         if zalo_avatar: self.config_data['zalo_avatar'] = zalo_avatar
                         self.save_config_silent()
-                        
-                        # FIX AN TOÀN LUỒNG: Đẩy lệnh cập nhật giao diện Profile lên Luồng UI chính
                         Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
                         self.safe_toast("Đã liên kết Zalo Web thành công!")
                         
