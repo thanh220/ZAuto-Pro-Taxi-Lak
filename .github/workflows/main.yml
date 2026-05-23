@@ -105,7 +105,12 @@ jobs:
         run: |
           export PATH=$PATH:~/.local/bin
           export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
-          buildozer android debug
+          buildozer android debug 2>&1 | tee build_full.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "====== TÓM TẮT LỖI ======"
+            grep -i "error\|exception\|failed\|traceback" build_full.log | tail -50
+            exit 1
+          fi
 
       - name: Verify APK
         run: |
