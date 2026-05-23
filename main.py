@@ -796,7 +796,7 @@ class RideCard(MDCard):
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 2.0  
+    APP_VERSION = 2.1  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1218,26 +1218,23 @@ class ZAutoProApp(MDApp):
         sw_filter_active = self.config_data.get('sw_filter', False)
 
         # ==============================================================
-        # 3. CHỐNG SPAM TIN TRÙNG (KẾT HỢP TIMESTAMP CHO TIN THOẠI)
+        # 3. CHỐNG SPAM TIN TRÙNG - CHỈ ÁP DỤNG CHO TIN TEXT, KHÔNG CHẶN VOICE
         # ==============================================================
         if not hasattr(self, 'last_msg_per_group'):
             self.last_msg_per_group = {}
 
-        # Gộp ID hoặc nội dung tin kèm dấu vết thời gian độc nhất nếu là tin nhắn dạng động / thoại
-        hash_seed = msg_clean
-        if msg_id.startswith("TS_"): # ID đặc biệt sinh ra từ timestamp của React Fiber bên Java
-            hash_seed = f"{msg_clean}_{msg_id}"
+        msg_hash = hashlib.md5(msg_clean.encode('utf-8')).hexdigest()[:12]
 
-        msg_hash = hashlib.md5(hash_seed.encode('utf-8')).hexdigest()[:12]
+        # Chỉ kiểm tra trùng lặp cho tin TEXT - voice sẽ dùng audio_seen_set riêng
+        if not is_voice:
+            if conversation_id in self.last_msg_per_group:
+                last_id, last_hash, last_time = self.last_msg_per_group[conversation_id]
+                both_time_fallback = msg_id.startswith("TIME_") and last_id.startswith("TIME_")
+                if (msg_id == last_id or both_time_fallback) and msg_hash == last_hash:
+                    if time.time() - last_time < 3600.0:
+                        return # Tin text trùng -> Bỏ qua
 
-        if conversation_id in self.last_msg_per_group:
-            last_id, last_hash, last_time = self.last_msg_per_group[conversation_id]
-            both_time_fallback = msg_id.startswith("TIME_") and last_id.startswith("TIME_")
-            
-            if (msg_id == last_id or both_time_fallback) and msg_hash == last_hash:
-                if time.time() - last_time < 3600.0:
-                    return # Bị trùng thực sự -> Bỏ qua
-
+        # Luôn cập nhật mốc mới nhất (cả voice lẫn text)
         self.last_msg_per_group[conversation_id] = (msg_id, msg_hash, time.time())
 
         # ==============================================================
@@ -1282,13 +1279,14 @@ class ZAutoProApp(MDApp):
         else:
             # --- 💬 LUỒNG TEXT ---
             if sw_filter_active:
+                # BƯỚC 1: Loại bỏ tin chứa từ khóa BỎ QUA
                 loai_keys = [k.strip() for k in self.config_data.get('loai', '').lower().split(',') if k.strip()]
-                if loai_keys and any(lk in msg_content_only for lk in loai_keys): 
-                    return # Bị loại -> Bỏ qua
-                
+                if loai_keys and any(lk in msg_content_only for lk in loai_keys):
+                    return # Chứa từ khóa bỏ qua -> Loại
+
                 nhan_keys = [k.strip() for k in self.config_data.get('nhan', '').lower().split(',') if k.strip()]
-                if nhan_keys and not any(nk in msg_content_only for nk in nhan_keys): 
-                    return # Không có từ khóa nhận -> Bỏ qua
+                if nhan_keys and not any(nk in msg_content_only for nk in nhan_keys):
+                    return # Có từ khóa nhận nhưng tin không khớp -> Bỏ qua
 
             # ✅ Vượt qua Filter -> Nổ Canh me
             display_msg = msg
@@ -1500,14 +1498,24 @@ class ZAutoProApp(MDApp):
     def _execute_reply_safe(self, payload):
         """HÀM GỌI XUỐNG JAVA PHẢI CHẠY TRÊN UI THREAD CỦA ANDROID"""
         try:
+            # ẨN BÀN PHÍM TRƯỚC KHI CHỐT - tránh bàn phím bật lên khi chốt tự động
+            if platform == 'android':
+                try:
+                    from jnius import autoclass as _ac
+                    _ctx = _ac('org.kivy.android.PythonActivity').mActivity
+                    _imm = _ctx.getSystemService(_ac('android.content.Context').INPUT_METHOD_SERVICE)
+                    _win = _ctx.getWindow().getDecorView().getWindowToken()
+                    _imm.hideSoftInputFromWindow(_win, 0)
+                except: pass
+
             if platform == 'android' and getattr(self, 'is_linked', False):
                 from jnius import autoclass
                 PythonActivity = autoclass('org.kivy.android.PythonActivity')
                 current_time_str = time.strftime('%H:%M')
                 autoclass('org.zauto.ZaloWebManager').sendReplyToSpecificMessage(
-                    PythonActivity.mActivity, 
-                    payload.get('conversation_id', ''), 
-                    payload.get('msg_id', ''), 
+                    PythonActivity.mActivity,
+                    payload.get('conversation_id', ''),
+                    payload.get('msg_id', ''),
                     payload.get('reply_text', ''),
                     payload.get('msg_content', ''),
                     current_time_str
@@ -1847,7 +1855,7 @@ class ZAutoProApp(MDApp):
         self._restarting_msg_worker = False
         self._restarting_reply_worker = False
         self.last_webview_bounds = None
-        Window.softinput_mode = "below_target"
+        Window.softinput_mode = "pan"  # Dùng pan thay below_target để tránh bàn phím bật lên tự động
 
     def safe_toast(self, msg):
         """Bảo vệ UI EventLoop khỏi spam toast"""
