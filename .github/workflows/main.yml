@@ -35,9 +35,9 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.cache/pip
-          key: ${{ runner.os }}-zauto-v29-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-zauto-v30-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-zauto-v29-
+            ${{ runner.os }}-zauto-v30-
 
       - name: Install System Packages
         run: |
@@ -69,7 +69,13 @@ jobs:
         run: |
           rm -rf .buildozer
           rm -rf bin
-
+      - name: Ensure res/xml directory exists
+        run: |
+          mkdir -p res/xml
+          if [ ! -f "res/xml/file_paths.xml" ]; then
+            echo '<?xml version="1.0" encoding="utf-8"?><paths><files-path name="apk_files" path="." /></paths>' > res/xml/file_paths.xml
+            echo "Created missing file_paths.xml"
+          fi
       - name: Debug File Tree
         run: |
           echo "========== DEBUG: CURRENT FILE STRUCTURE =========="
@@ -117,8 +123,19 @@ jobs:
             exit 1
           fi
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ZAuto_VIP_APK
           path: bin/*.apk
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: "ZAuto VIP v${{ github.run_number }}"
+          body: "Build tự động từ GitHub Actions"
+          files: bin/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
