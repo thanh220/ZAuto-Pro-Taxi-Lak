@@ -67,6 +67,10 @@ android.gradle_args = -Xmx4096m
 # =====================================================
 android.release_artifact = apk
 android.package_format = apk
+android.keystore = zauto.keystore
+android.keystore_password = zauto123
+android.keyalias = zauto
+android.keyalias_password = zauto123
 
 # =====================================================
 # FOREGROUND SERVICE
