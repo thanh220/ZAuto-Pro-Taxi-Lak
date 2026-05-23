@@ -1712,24 +1712,50 @@ class ZAutoProApp(MDApp):
         self._update_popup.open()
 
     def _start_download_apk(self, apk_url):
-        """Tải APK về bộ nhớ nội bộ app, hiện tiến trình %, sau đó gọi cài đặt"""
+        """Tải APK từ GitHub Releases - tự xử lý redirect, hiện tiến trình %"""
         import threading
         import urllib.request
+        import urllib.error
 
         save_path = os.path.join(BASE_PATH, 'update.apk')
 
         def download_thread():
             try:
                 Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', "Đang kết nối..."), 0)
+
+                # GitHub Releases dùng redirect 302 - phải mở thủ công để theo redirect
+                opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+                opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
+                urllib.request.install_opener(opener)
+
+                req = urllib.request.Request(apk_url, headers={'User-Agent': 'Mozilla/5.0'})
+                response = urllib.request.urlopen(req, timeout=60)
+
+                total_size = int(response.headers.get('Content-Length', 0))
+                downloaded = 0
+                block_size = 8192
+
+                Clock.schedule_once(lambda dt: setattr(
                     self._update_progress_label, 'text', "Đang tải... 0%"), 0)
 
-                def reporthook(block_count, block_size, total_size):
-                    if total_size > 0:
-                        percent = min(int(block_count * block_size * 100 / total_size), 99)
-                        Clock.schedule_once(lambda dt, p=percent: setattr(
-                            self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
+                with open(save_path, 'wb') as f:
+                    while True:
+                        block = response.read(block_size)
+                        if not block:
+                            break
+                        f.write(block)
+                        downloaded += len(block)
+                        if total_size > 0:
+                            percent = min(int(downloaded * 100 / total_size), 99)
+                            Clock.schedule_once(
+                                lambda dt, p=percent: setattr(
+                                    self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
 
-                urllib.request.urlretrieve(apk_url, save_path, reporthook)
+                # Kiểm tra file hợp lệ - APK phải lớn hơn 1MB
+                file_size = os.path.getsize(save_path)
+                if file_size < 1024 * 1024:
+                    raise Exception(f"File lỗi - chỉ có {file_size} bytes")
 
                 Clock.schedule_once(lambda dt: setattr(
                     self._update_progress_label, 'text', "✅ Tải xong! Đang mở cài đặt..."), 0)
@@ -1737,8 +1763,13 @@ class ZAutoProApp(MDApp):
 
             except Exception as e:
                 logger.error(f"Lỗi tải APK: {e}")
+                # Xóa file lỗi nếu có
+                try:
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                except: pass
                 Clock.schedule_once(lambda dt: setattr(
-                    self._update_progress_label, 'text', f"❌ Lỗi tải: {e}"), 0)
+                    self._update_progress_label, 'text', f"❌ Lỗi: {str(e)[:60]}"), 0)
 
         threading.Thread(target=download_thread, daemon=True).start()
 
