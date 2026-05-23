@@ -1674,7 +1674,113 @@ class ZAutoProApp(MDApp):
             autoclass('org.zauto.ZaloWebManager').reloadWeb(PythonActivity.mActivity)
             toast("Đang tải lại Zalo Web...")
 
-    
+    def show_update_popup(self, server_ver, update_note, apk_url):
+        """Hiện popup thông báo có bản cập nhật mới với nút tải"""
+        content = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        content.add_widget(Label(
+            text=f"[b]Phiên bản mới: v{server_ver}[/b]\n\n{update_note}",
+            markup=True, halign='center', valign='middle',
+            size_hint_y=None, height=90
+        ))
+        self._update_progress_label = Label(
+            text="", size_hint_y=None, height=25,
+            color=(0.1, 0.5, 0.8, 1)
+        )
+        content.add_widget(self._update_progress_label)
+
+        btn_update = Button(
+            text="⬇ CẬP NHẬT NGAY",
+            background_normal='', background_color=(0.1, 0.5, 0.8, 1),
+            bold=True, size_hint_y=None, height=50
+        )
+        btn_skip = Button(
+            text="Bỏ qua lần này",
+            background_normal='', background_color=(0.6, 0.6, 0.6, 1),
+            size_hint_y=None, height=38
+        )
+        content.add_widget(btn_update)
+        content.add_widget(btn_skip)
+
+        self._update_popup = Popup(
+            title="🆕 Có bản cập nhật mới!",
+            content=content,
+            size_hint=(0.88, None), height=280,
+            auto_dismiss=False
+        )
+        btn_update.bind(on_release=lambda x: self._start_download_apk(apk_url))
+        btn_skip.bind(on_release=self._update_popup.dismiss)
+        self._update_popup.open()
+
+    def _start_download_apk(self, apk_url):
+        """Tải APK về bộ nhớ nội bộ app, hiện tiến trình %, sau đó gọi cài đặt"""
+        import threading
+        import urllib.request
+
+        save_path = os.path.join(BASE_PATH, 'update.apk')
+
+        def download_thread():
+            try:
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', "Đang tải... 0%"), 0)
+
+                def reporthook(block_count, block_size, total_size):
+                    if total_size > 0:
+                        percent = min(int(block_count * block_size * 100 / total_size), 99)
+                        Clock.schedule_once(lambda dt, p=percent: setattr(
+                            self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
+
+                urllib.request.urlretrieve(apk_url, save_path, reporthook)
+
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', "✅ Tải xong! Đang mở cài đặt..."), 0)
+                Clock.schedule_once(lambda dt: self._install_apk(save_path), 0.8)
+
+            except Exception as e:
+                logger.error(f"Lỗi tải APK: {e}")
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', f"❌ Lỗi tải: {e}"), 0)
+
+        threading.Thread(target=download_thread, daemon=True).start()
+
+    def _install_apk(self, apk_path):
+        """Gọi Android mở màn hình cài đặt APK"""
+        if hasattr(self, '_update_popup') and self._update_popup:
+            self._update_popup.dismiss()
+
+        if platform == 'android':
+            try:
+                from jnius import autoclass
+                File = autoclass('java.io.File')
+                FileProvider = autoclass('androidx.core.content.FileProvider')
+                Intent = autoclass('android.content.Intent')
+                Build = autoclass('android.os.Build')
+
+                activity = PythonActivity.mActivity
+                pkg = activity.getPackageName()
+                apk_file = File(apk_path)
+
+                if Build.VERSION.SDK_INT >= 24:
+                    uri = FileProvider.getUriForFile(
+                        activity,
+                        f"{pkg}.fileprovider",
+                        apk_file
+                    )
+                else:
+                    Uri = autoclass('android.net.Uri')
+                    uri = Uri.fromFile(apk_file)
+
+                intent = Intent(Intent.ACTION_VIEW)
+                intent.setDataAndType(uri, "application/vnd.android.package-archive")
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                activity.startActivity(intent)
+                logger.info("Đã mở màn hình cài đặt APK")
+
+            except Exception as e:
+                logger.error(f"Lỗi mở cài đặt APK: {e}")
+                toast("Lỗi cài đặt! Kiểm tra lại FileProvider.")
+        else:
+            toast(f"[PC] APK đã tải về: {apk_path}")
 
    
     def __init__(self, **kwargs):
