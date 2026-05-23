@@ -796,7 +796,7 @@ class RideCard(MDCard):
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 2.1  
+    APP_VERSION = 2.2  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1156,10 +1156,14 @@ class ZAutoProApp(MDApp):
                 conv_id, msg_id, cache_key, duration = self.audio_queue.get(timeout=1.0)
                 
                 # Tạo một khóa định danh duy nhất cho tin thoại dựa trên mã hội thoại và mã tin nhắn
-                audio_unique_key = f"{conv_id}_{msg_id}"
+                # Nếu msg_id là TIME_ thì thêm timestamp thực vào key để không bị chặn nhau
+                if msg_id.startswith("TIME_") or not msg_id or len(msg_id) < 4:
+                    audio_unique_key = f"{conv_id}_{msg_id}_{int(time.time())}"
+                else:
+                    audio_unique_key = f"{conv_id}_{msg_id}"
                 if audio_unique_key in self.audio_seen_set:
                     self.audio_queue.task_done()
-                    continue # Đã phát rồi -> Bỏ qua ngay lập tức
+                    continue
 
                 if platform == 'android' and getattr(self, 'is_linked', False):
                     # Thêm vào danh sách đã phát thành công
@@ -1768,6 +1772,12 @@ class ZAutoProApp(MDApp):
 
         save_path = os.path.join(BASE_PATH, 'update.apk')
 
+        # Xóa file APK cũ/lỗi trước khi tải bản mới
+        try:
+            if os.path.exists(save_path):
+                os.remove(save_path)
+        except: pass
+
         def download_thread():
             try:
                 Clock.schedule_once(lambda dt: setattr(
@@ -1855,7 +1865,18 @@ class ZAutoProApp(MDApp):
                 intent.addFlags(0x00040000)  # FLAG_ACTIVITY_NO_HISTORY
 
                 # Dismiss popup SAU khi đã fire intent để Kivy không mất context trước
-                activity.startActivity(intent)
+                # Gỡ app cũ trước nếu đã cài - tránh lỗi signature conflict
+                try:
+                    uninstall_intent = Intent(Intent.ACTION_DELETE)
+                    Uri = autoclass('android.net.Uri')
+                    uninstall_intent.setData(Uri.parse(f"package:{pkg}"))
+                    uninstall_intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    activity.startActivity(uninstall_intent)
+                    # Chờ 3 giây để user xác nhận gỡ xong rồi mới mở cài đặt
+                    Clock.schedule_once(lambda dt: activity.startActivity(intent), 3.0)
+                except:
+                    # Nếu gỡ thất bại thì cứ cài đè thẳng
+                    activity.startActivity(intent)
                 logger.info("Đã mở màn hình cài đặt APK")
 
                 # Đợi 1 giây rồi mới đóng popup - tránh mất reference UI trước khi intent xử lý xong
