@@ -1683,37 +1683,78 @@ class ZAutoProApp(MDApp):
             toast("Đang tải lại Zalo Web...")
 
     def show_update_popup(self, server_ver, update_note, apk_url):
-        """Hiện popup thông báo có bản cập nhật mới với nút tải"""
-        content = BoxLayout(orientation='vertical', padding=15, spacing=10)
-        content.add_widget(Label(
-            text=f"[b]Phiên bản mới: v{server_ver}[/b]\n\n{update_note}",
-            markup=True, halign='center', valign='middle',
-            size_hint_y=None, height=90
-        ))
-        self._update_progress_label = Label(
-            text="", size_hint_y=None, height=25,
-            color=(0.1, 0.5, 0.8, 1)
-        )
-        content.add_widget(self._update_progress_label)
+        """Hiện popup cập nhật - responsive theo màn hình, đồng bộ style app"""
+        # ScrollView bọc ngoài để máy nhỏ vẫn vuốt được
+        root_scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
 
-        btn_update = Button(
-            text="⬇ CẬP NHẬT NGAY",
-            background_normal='', background_color=(0.1, 0.5, 0.8, 1),
-            bold=True, size_hint_y=None, height=50
+        main_layout = BoxLayout(
+            orientation='vertical',
+            padding=dp(15), spacing=dp(12),
+            size_hint_y=None
         )
+        main_layout.bind(minimum_height=main_layout.setter('height'))
+
+        # --- TIÊU ĐỀ PHIÊN BẢN ---
+        main_layout.add_widget(Label(
+            text=f"[b]Phiên bản mới: v{server_ver}[/b]",
+            markup=True, halign='center', valign='middle',
+            color=(0.1, 0.1, 0.1, 1), bold=True,
+            size_hint_y=None, height=dp(35)
+        ))
+
+        # --- NỘI DUNG GHI CHÚ CẬP NHẬT (tự co giãn theo text) ---
+        note_lbl = Label(
+            text=update_note,
+            halign='center', valign='top',
+            color=(0.3, 0.3, 0.3, 1),
+            size_hint_y=None,
+            text_size=(Window.width * 0.80, None)
+        )
+        note_lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1] + dp(10)))
+        main_layout.add_widget(note_lbl)
+
+        # --- LABEL TIẾN TRÌNH TẢI ---
+        self._update_progress_label = Label(
+            text="",
+            size_hint_y=None, height=dp(28),
+            color=(0.1, 0.5, 0.8, 1),
+            halign='center', valign='middle'
+        )
+        main_layout.add_widget(self._update_progress_label)
+
+        # --- NÚT CẬP NHẬT NGAY (xanh, đồng bộ style app) ---
+        btn_update = Button(
+            text="⬇  CẬP NHẬT NGAY",
+            size_hint_x=1, size_hint_y=None, height=dp(50),
+            bold=True, font_size='16sp',
+            background_normal='', background_color=(0.1, 0.5, 0.8, 1),
+            color=(1, 1, 1, 1)
+        )
+
+        # --- NÚT BỎ QUA ---
         btn_skip = Button(
             text="Bỏ qua lần này",
-            background_normal='', background_color=(0.6, 0.6, 0.6, 1),
-            size_hint_y=None, height=38
+            size_hint_x=1, size_hint_y=None, height=dp(42),
+            background_normal='', background_color=(0.65, 0.65, 0.65, 1),
+            color=(1, 1, 1, 1)
         )
-        content.add_widget(btn_update)
-        content.add_widget(btn_skip)
+
+        main_layout.add_widget(btn_update)
+        main_layout.add_widget(btn_skip)
+        # Khoảng đệm cuối tránh nút sát mép
+        main_layout.add_widget(Label(size_hint_y=None, height=dp(8)))
+
+        root_scroll.add_widget(main_layout)
 
         self._update_popup = Popup(
             title="🆕 Có bản cập nhật mới!",
-            content=content,
-            size_hint=(0.88, None), height=280,
-            auto_dismiss=False
+            content=root_scroll,
+            size_hint=(0.92, 0.55),   # 92% rộng, 55% cao màn hình -> vừa mọi máy
+            auto_dismiss=False,
+            background='',
+            background_color=(1, 1, 1, 1),
+            title_color=(0, 0, 0, 1),
+            separator_color=(0.1, 0.5, 0.8, 1)
         )
         btn_update.bind(on_release=lambda x: self._start_download_apk(apk_url))
         btn_skip.bind(on_release=self._update_popup.dismiss)
@@ -1782,10 +1823,7 @@ class ZAutoProApp(MDApp):
         threading.Thread(target=download_thread, daemon=True).start()
 
     def _install_apk(self, apk_path):
-        """Gọi Android mở màn hình cài đặt APK"""
-        if hasattr(self, '_update_popup') and self._update_popup:
-            self._update_popup.dismiss()
-
+        """Gọi Android mở màn hình cài đặt APK - KHÔNG dismiss popup trước để tránh mất focus Kivy"""
         if platform == 'android':
             try:
                 from jnius import autoclass
@@ -1811,16 +1849,33 @@ class ZAutoProApp(MDApp):
                 intent = Intent(Intent.ACTION_VIEW)
                 intent.setDataAndType(uri, "application/vnd.android.package-archive")
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                # KHÔNG dùng FLAG_ACTIVITY_NEW_TASK một mình - thêm CLEAR_TOP để tránh ROM kill app
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                intent.addFlags(0x00040000)  # FLAG_ACTIVITY_NO_HISTORY
+
+                # Dismiss popup SAU khi đã fire intent để Kivy không mất context trước
                 activity.startActivity(intent)
                 logger.info("Đã mở màn hình cài đặt APK")
 
+                # Đợi 1 giây rồi mới đóng popup - tránh mất reference UI trước khi intent xử lý xong
+                def safe_dismiss(dt):
+                    try:
+                        if hasattr(self, '_update_popup') and self._update_popup:
+                            self._update_popup.dismiss()
+                    except: pass
+                Clock.schedule_once(safe_dismiss, 1.0)
+
             except Exception as e:
                 logger.error(f"Lỗi mở cài đặt APK: {e}")
-                toast("Lỗi cài đặt! Kiểm tra lại FileProvider.")
+                # Thử fallback: ghi đường dẫn ra toast để user tự cài thủ công
+                toast(f"Lỗi cài đặt! Thử mở file: {apk_path}")
+                if hasattr(self, '_update_popup') and self._update_popup:
+                    self._update_popup.dismiss()
         else:
             toast(f"[PC] APK đã tải về: {apk_path}")
-
+            if hasattr(self, '_update_popup') and self._update_popup:
+                self._update_popup.dismiss()
    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
