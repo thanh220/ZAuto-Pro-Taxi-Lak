@@ -346,15 +346,11 @@ public class ZaloWebManager {
                 "       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
                 "   }" +
 
-                // LUỒNG KHỞI CHẠY CHÍNH ĐỒNG BỘ (ĐÃ FIX ÉP VÀO NHÓM)
-                "   openGroup(function(opened) {" +
-                "       if (!opened) {" +
-                "           console.log('ZAuto: Khong mo duoc nhom dung, huy bo chot de tranh gui nham nhom khac!');" +
-                "           return;" +
-                "       }" +
-                "       var targetNode = findTargetMessage();" +
-                "       executeSend(targetNode);" +
-                "   });" +
+                // LUỒNG KHỞI CHẠY CHÍNH - NẾU KHÔNG TÌM ĐƯỢC NHÓM TRONG SIDEBAR VẪN TIẾP TỤC GỬI
+                \"   openGroup(function(opened) {\" +
+                \"       var targetNode = findTargetMessage();\" +
+                \"       executeSend(targetNode);\" +
+                \"   });\" +
 
                 "} catch(e) { console.log('ZAuto Reply Error:', e); }" +
                 "})();";
@@ -766,8 +762,9 @@ public class ZaloWebManager {
             "               stableId = realMsgId;" +
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
-            "               if (isVoice) {" +
-			"                   stableId = 'VOICE_' + convId + '_' + (realMsgId && realMsgId.length > 3 ? realMsgId : String(Date.now()));" +
+            "               if (isVoice) {\" +
+            "                   let voiceKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + msgText.replace(/%%%[-0-9]+$/, '').trim().substring(0, 30));\" +
+            "                   stableId = 'VOICE_' + voiceKey;\" +
             "               } else {" +
             "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
             "               }" +
