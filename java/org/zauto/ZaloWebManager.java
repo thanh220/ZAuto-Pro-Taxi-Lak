@@ -235,32 +235,30 @@ public class ZaloWebManager {
                 "   }" +
 
                 // =========================================================================
-                // 2. HÀM ĐIỀU PHỐI ĐIỀU KHIỂN CHỐT CUỐC XE CHÍNH XÁC 100% (TẦNG 1)
+                // 2. HÀM ĐIỀU PHỐI ĐIỀU KHIỂN CHỐT CUỐC XE (GOD MODE - 100% QUOTE TRONG NHÓM)
                 // =========================================================================
                 "   function executeSend(targetNode) {" +
                 "       let realQuoteId = targetMsgId;" +
+                "       let msgReactObj = null;" + // Bắt sống Object tin nhắn để xử lý Nhóm
                 "       if (targetNode) {" +
                 "           targetNode.scrollIntoView({block:'center', behavior:'smooth'});" +
-                "           let nid = targetNode.getAttribute('data-msg-id') || targetNode.id || '';" +
-                "           if (!nid || nid.length <= 4) {" +
-                "               let deepNode = targetNode.querySelector('[data-msg-id]');" +
-                "               if (deepNode) nid = deepNode.getAttribute('data-msg-id') || '';" +
-                "           }" +
-                "           if (!nid || nid.length <= 4) {" +
-                "               let allNodes = [targetNode].concat(Array.from(targetNode.querySelectorAll('*')));" +
-                "               for (let n of allNodes) {" +
-                "                   let rk = Object.keys(n).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-                "                   if (rk && n[rk]) {" +
-                "                       let p = n[rk].memoizedProps || n[rk].pendingProps || {};" +
-                "                       let o = p.msg || p.message || p.data || p.item || p;" +
-                "                       if (o && typeof o === 'object') {" +
-                "                           let fid = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
-                "                           if (fid && String(fid).length > 4) { nid = String(fid); break; }" +
+                "           let allNodes = [targetNode].concat(Array.from(targetNode.querySelectorAll('*')));" +
+                "           for (let n of allNodes) {" +
+                "               let rk = Object.keys(n).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+                "               if (rk && n[rk]) {" +
+                "                   let p = n[rk].memoizedProps || n[rk].pendingProps || {};" +
+                "                   let o = p.msg || p.message || p.data || p.item || p;" +
+                "                   if (o && typeof o === 'object') {" +
+                "                       let fid = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
+                "                       if (fid && String(fid).length > 4) {" +
+                "                           realQuoteId = String(fid);" +
+                "                           msgReactObj = o;" + // LẤY CHÍNH XÁC OBJECT GỐC TỪ BỘ NHỚ ZALO
+                "                           break;" +
                 "                       }" +
                 "                   }" +
                 "               }" +
                 "           }" +
-                "           if (nid.length > 4) realQuoteId = nid.replace('msg-','').replace('msg_','');" +
+                "           if (realQuoteId.length > 4) realQuoteId = realQuoteId.replace('msg-','').replace('msg_','');" +
                 "       }" +
 
                 // Đảm bảo trạng thái sống của API trước khi gửi
@@ -272,41 +270,76 @@ public class ZaloWebManager {
                 "           if (typeof window.zautoDiscoverMessengerApi === 'function') window.zautoDiscoverMessengerApi();" +
                 "       }" +
 
-                // ---- HƯỚNG ĐI 1: BẮN QUA API CORE NỘI BỘ (0.001 GIÂY - ĐÃ FIX PAYLOAD) ----
+                // ---- TẦNG 1: BẮN API CORE NỘI BỘ VỚI "FULL QUOTE OBJECT" ĐỂ ÉP QUOTE NHÓM ----
                 "       if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
                 "           try {" +
-                // ĐÃ FIX: Dùng lại chuẩn toid kinh điển của Zalo, loại bỏ biến uid gây lỗi Silent Fail
                 "               let reqObj = { toid: convId, msg: safeReply, type: 1 };" +
-                "               if (realQuoteId && !realQuoteId.startsWith('TIME_')) reqObj.quote_msgId = realQuoteId;" +
+                "               if (realQuoteId && !realQuoteId.startsWith('TIME_')) {" +
+                "                   reqObj.quote_msgId = realQuoteId;" +
+                "                   if (msgReactObj) {" +
+                "                       reqObj.quoteObj = msgReactObj;" + // Ép Zalo nhận diện cấu trúc người gửi trong Nhóm
+                "                       reqObj.quote_baseMsg = msgReactObj;" + 
+                "                       reqObj.quoteMsg = msgReactObj;" + 
+                "                   }" +
+                "               }" +
                 "               window.zMessenger.sendMessage(reqObj);" +
-                "               ZAutoBridge.onLoginSuccess('Chốt API OK', '');" +
+                "               ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK', '');" +
                 "               return;" + 
                 "           } catch(apiErr) {" +
                 "               console.log('API lỗi, chuyển sang gọi DOM UI');" +
                 "           }" +
                 "       }" +
 
-                // ---- HƯỚNG ĐI 1.5: DÙNG DOM UI (GÕ CHỮ ẢO) NẾU API BỊ TỪ CHỐI ----
+                // ---- TẦNG 2: GOD MODE DOM UI (CHỌC THẲNG REACT FIBER ÉP BẬT THANH TRẢ LỜI) ----
                 "       try {" +
-                "           var input = document.querySelector('#richInput') || document.querySelector('.chat-input');" +
-                "           if (input) {" +
-                "               input.focus(); input.innerHTML = safeReply;" +
-                "               input.dispatchEvent(new Event('input', {bubbles: true}));" +
-                "               setTimeout(() => {" +
-                "                   var btnSend = document.querySelector('#chat-input-container-id .send-msg-btn') || document.querySelector('.fa-Sent-msg_24_Line');" +
-                "                   if (btnSend) {" +
-                "                       var tgt = btnSend.closest('.z--btn--v2') || btnSend.parentNode || btnSend;" +
-                "                       tgt.click();" +
+                "           if (targetNode) {" +
+                "               let quoteSuccess = false;" +
+                "               let bubble = targetNode.querySelector('.card--text, .card-content, div[class*=\\\"bubble\\\"]') || targetNode;" +
+                "               let nodesToTry = [bubble, targetNode, targetNode.querySelector('.chat-message')].filter(Boolean);" +
+                "               for (let n of nodesToTry) {" +
+                "                   let rk = Object.keys(n).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
+                "                   if (rk && n[rk]) {" +
+                "                       let dblHandler = n[rk].onDoubleClick || (n[rk].return && n[rk].return.memoizedProps && n[rk].return.memoizedProps.onDoubleClick);" +
+                "                       if (dblHandler) {" +
+                //                              Chọc trực tiếp vào lõi React để mở Quote mà không cần chuột vật lý
+                "                           dblHandler({ preventDefault:()=>{}, stopPropagation:()=>{}, bubbles: true });" +
+                "                           quoteSuccess = true;" +
+                "                           break;" +
+                "                       }" +
                 "                   }" +
-                "                   var enterEvt = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, key: 'Enter' });" +
-                "                   input.dispatchEvent(enterEvt);" +
-                "                   ZAutoBridge.onLoginSuccess('Chốt DOM UI OK', '');" +
-                "               }, 300);" +
-                "               return;" +
+                "               }" +
+                //               Nếu Core React bị ẩn, bắn sự kiện MouseEvent chuẩn W3C vào tâm vật lý
+                "               if (!quoteSuccess) {" +
+                "                   let rect = bubble.getBoundingClientRect();" +
+                "                   let cx = rect.left + (rect.width / 2);" +
+                "                   let cy = rect.top + (rect.height / 2);" +
+                "                   let dblEvt = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy });" +
+                "                   bubble.dispatchEvent(dblEvt);" +
+                "               }" +
                 "           }" +
+
+                // CHỜ 100ms ĐỂ ZALO KÉP BẬT THANH "ĐANG TRẢ LỜI..." RỒI MỚI GÕ VÀ GỬI ĐI
+                "           setTimeout(() => {" +
+                "               var input = document.querySelector('#richInput') || document.querySelector('.chat-input');" +
+                "               if (input) {" +
+                "                   input.focus(); input.innerHTML = safeReply;" +
+                "                   input.dispatchEvent(new Event('input', {bubbles: true}));" +
+                "                   setTimeout(() => {" +
+                "                       var btnSend = document.querySelector('#chat-input-container-id .send-msg-btn') || document.querySelector('.fa-Sent-msg_24_Line');" +
+                "                       if (btnSend) {" +
+                "                           var tgt = btnSend.closest('.z--btn--v2') || btnSend.parentNode || btnSend;" +
+                "                           tgt.click();" +
+                "                       }" +
+                "                       var enterEvt = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, key: 'Enter' });" +
+                "                       input.dispatchEvent(enterEvt);" +
+                "                       ZAutoBridge.onLoginSuccess('Chốt DOM UI QUOTE OK', '');" +
+                "                   }, 300);" +
+                "                   return;" +
+                "               }" +
+                "           }, 100);" +
                 "       } catch(domErr) {}" +
 
-                // ---- HƯỚNG ĐI 2: CHUYỂN LÀN SANG PYTHON ĐỂ CHỤP MÀN HÌNH "MẮT THẦN" ----
+                // ---- TẦNG 3: NẾU TẤT CẢ ĐỀU SỤP, MỞ MẮT THẦN PYTHON (OPENCV) ----
                 "       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
                 "   }" +
 
