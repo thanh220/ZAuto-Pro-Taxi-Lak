@@ -1908,13 +1908,13 @@ class ZAutoProApp(MDApp):
         self._update_popup.open()
 
     def _start_download_apk(self, apk_url):
-    import threading, urllib.request, urllib.error, traceback
+        import threading, urllib.request, urllib.error, traceback
 
-    save_path = os.path.join(BASE_PATH, 'update.apk')
-    try:
-        if os.path.exists(save_path):
-            os.remove(save_path)
-    except: pass
+        save_path = os.path.join(BASE_PATH, 'update.apk')
+        try:
+            if os.path.exists(save_path):
+                os.remove(save_path)
+        except: pass
 
     def download_thread():
         try:
