@@ -197,7 +197,7 @@ public class ZaloWebManager {
                 "               }" +
                 "           }" +
                 "       }" +
-                "       if (!groupItem) { callback(true); return; }" +
+                "       if (!groupItem) { callback(false); return; }" +
                 "       groupItem.scrollIntoView({block: 'center'}); groupItem.click();" +
                 "       var key = Object.keys(groupItem).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
                 "       if (key && groupItem[key]) {" +
@@ -272,17 +272,20 @@ public class ZaloWebManager {
 
                 // ---- TẦNG 1: BẮN API CORE NỘI BỘ VỚI "FULL QUOTE OBJECT" ĐỂ ÉP QUOTE NHÓM ----
                 "       if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
-                "           try {" +
-                "               let reqObj = { toid: convId, msg: safeReply, type: 1 };" +
-                "               if (realQuoteId && !realQuoteId.startsWith('TIME_')) {" +
-                "                   reqObj.quote_msgId = realQuoteId;" +
-                "                   if (msgReactObj) {" +
-                "                       reqObj.quoteObj = msgReactObj;" + // Ép Zalo nhận diện cấu trúc người gửi trong Nhóm
-                "                       reqObj.quote_baseMsg = msgReactObj;" + 
-                "                       reqObj.quoteMsg = msgReactObj;" + 
-                "                   }" +
-                "               }" +
-                "               window.zMessenger.sendMessage(reqObj);" +
+				"           try {" +
+				"               let reqObj = { toid: convId, msg: safeReply, type: 1 };" +
+				"               if (realQuoteId && !realQuoteId.startsWith('TIME_') && msgReactObj) {" +
+				"                   reqObj.quote = {" +
+				"                       globalMsgId: realQuoteId," +
+				"                       ownerId: msgReactObj.ownerId || msgReactObj.senderId || msgReactObj.uid || ''," +
+				"                       dName: msgReactObj.dName || msgReactObj.senderName || msgReactObj.fromName || ''," +
+				"                       msg: msgReactObj.content || msgReactObj.msg || msgReactObj.text || safeSearchText," +
+				"                       type: msgReactObj.msgType || msgReactObj.type || 1" +
+				"                   };" +
+				"               } else if (realQuoteId && !realQuoteId.startsWith('TIME_')) {" +
+				"                   reqObj.quote = { globalMsgId: realQuoteId, msg: safeSearchText, type: 1 };" +
+				"               }" +
+				"               window.zMessenger.sendMessage(reqObj);" +
                 "               ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK', '');" +
                 "               return;" + 
                 "           } catch(apiErr) {" +
@@ -294,7 +297,7 @@ public class ZaloWebManager {
                 "       try {" +
                 "           if (targetNode) {" +
                 "               let quoteSuccess = false;" +
-                "               let bubble = targetNode.querySelector('.card--text, .card-content, div[class*=\\\"bubble\\\"]') || targetNode;" +
+                "               let bubble = targetNode.querySelector('.card--text, .card-content, div[class*=\"bubble\"], .message-chat-inner, [class*=\"chat-body\"], [class*=\"chat-item__content\"], .chat-item') || targetNode;" +
                 "               let nodesToTry = [bubble, targetNode, targetNode.querySelector('.chat-message')].filter(Boolean);" +
                 "               for (let n of nodesToTry) {" +
                 "                   let rk = Object.keys(n).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
@@ -320,7 +323,7 @@ public class ZaloWebManager {
 
                 // CHỜ 100ms ĐỂ ZALO KÉP BẬT THANH "ĐANG TRẢ LỜI..." RỒI MỚI GÕ VÀ GỬI ĐI
                 "           setTimeout(() => {" +
-                "               var input = document.querySelector('#richInput') || document.querySelector('.chat-input');" +
+				"               var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]') || document.querySelector('.chat-input');" +
                 "               if (input) {" +
                 "                   input.focus(); input.innerHTML = safeReply;" +
                 "                   input.dispatchEvent(new Event('input', {bubbles: true}));" +
@@ -336,7 +339,7 @@ public class ZaloWebManager {
                 "                   }, 300);" +
                 "                   return;" +
                 "               }" +
-                "           }, 100);" +
+                "           }, 500);" +
                 "       } catch(domErr) {}" +
 
                 // ---- TẦNG 3: NẾU TẤT CẢ ĐỀU SỤP, MỞ MẮT THẦN PYTHON (OPENCV) ----
@@ -345,9 +348,9 @@ public class ZaloWebManager {
 
                 // LUỒNG KHỞI CHẠY CHÍNH ĐỒNG BỘ (ĐÃ FIX ÉP VÀO NHÓM)
                 "   openGroup(function(opened) {" +
-                "       if (!opened) { " +
-                // NẾU KHÔNG TÌM THẤY NHÓM TRÊN GIAO DIỆN -> VẪN ÉP GỬI API NGẦM VÌ ĐÃ CÓ CONVID
-                "           console.log('Khong the mo nhom tren UI, ep gui ngam!'); " +
+                "       if (!opened) {" +
+                "           console.log('ZAuto: Khong mo duoc nhom dung, huy bo chot de tranh gui nham nhom khac!');" +
+                "           return;" +
                 "       }" +
                 "       var targetNode = findTargetMessage();" +
                 "       executeSend(targetNode);" +
@@ -390,6 +393,10 @@ public class ZaloWebManager {
         @JavascriptInterface
         public void onGroupListReceived(String jsonGroups) {
             pythonMsgQueue.add("GROUPS_DATA|||" + jsonGroups);
+        }
+		@JavascriptInterface
+        public void onLogout() {
+            pythonMsgQueue.add("ZALO_LOGOUT|||");
         }
     }
 
@@ -606,7 +613,7 @@ public class ZaloWebManager {
                         // 2. THỬ GỬI BẰNG API NGẦM TRƯỚC
             "               if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
             "                   let req = { toid: convId, msg: text, type: 1 };" +
-            "                   if (realMsgId && realMsgId !== '') req.quote_msgId = realMsgId;" +
+            "                   if (realMsgId && realMsgId !== '') req.quote = { globalMsgId: realMsgId, msg: text, type: 1 };" +
             "                   window.zMessenger.sendMessage(req);" +
             "                   ZAutoBridge.onLoginSuccess('Đã chốt xong:', groupName);" + 
             "               } else {" +
@@ -760,7 +767,7 @@ public class ZaloWebManager {
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
             "               if (isVoice) {" +
-            "                   stableId = 'VOICE_' + convId + '_' + Date.now();" +
+			"                   stableId = 'VOICE_' + convId + '_' + (realMsgId && realMsgId.length > 3 ? realMsgId : String(Date.now()));" +
             "               } else {" +
             "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
             "               }" +
@@ -832,11 +839,13 @@ public class ZaloWebManager {
             "           if(syncBtn) syncBtn.click();" +
             "       } catch(e) {}" +
             "       let isLoginScreen = document.querySelector('.qrcode') || document.querySelector('.login-container');" +
-            "       if(isLoginScreen) {" +
-            "           if(!window.login_start_time) window.login_start_time = Date.now();" +
-            "           if(Date.now() - window.login_start_time > 180000) { window.login_start_time = Date.now(); location.reload(); }" +
+			"       if(isLoginScreen) {" +
+			"           if(!window.zauto_logout_notified) { window.zauto_logout_notified = true; ZAutoBridge.onLogout(); }" +
+			"           if(!window.login_start_time) window.login_start_time = Date.now();" +
+			"           if(Date.now() - window.login_start_time > 180000) { window.login_start_time = Date.now(); location.reload(); }" +
             "       } else {" +
-            "           window.login_start_time = null;" +
+			"           window.login_start_time = null;" +
+			"           window.zauto_logout_notified = false;" +
             "           let container = document.getElementById('conversationListId');" +
             "           if(!container || !window.zauto_sidebar_observer) {" +
             "               window.zauto_sidebar_observer = null;" +
@@ -899,13 +908,12 @@ public class ZaloWebManager {
                 FrameLayout.LayoutParams params =
                         (FrameLayout.LayoutParams) webLayout.getLayoutParams();
                 if (!visible) {
-                    // TRẠNG THÁI ẨN NỀN: Giữ nguyên kích thước tràn màn hình nhưng ẩn sâu dưới đáy UI Kivy
                     webLayout.setAlpha(0.01f);
                     webLayout.setTranslationZ(-100f);
-                    params.leftMargin = 0;
-                    params.topMargin = 0;
-                    params.width = ViewGroup.LayoutParams.MATCH_PARENT;
-                    params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                    params.leftMargin = -2000;
+                    params.topMargin = -2000;
+                    params.width = 1080;
+                    params.height = 2400;
                 } else {
                     // TRẠNG THÁI HIỆN (TAB ZALO): Nổi lên trên đỉnh, hiển thị sắc nét đúng tọa độ Kivy chỉ định
                     webLayout.setAlpha(1.0f);
