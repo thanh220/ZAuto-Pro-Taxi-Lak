@@ -321,9 +321,9 @@ public class ZaloWebManager {
                 "               }" +
                 "           }" +
 
-                // CHỜ 100ms ĐỂ ZALO KÉP BẬT THANH "ĐANG TRẢ LỜI..." RỒI MỚI GÕ VÀ GỬI ĐI
+                // CHỜ 500ms ĐỂ ZALO BẬT THANH "ĐANG TRẢ LỜI..." RỒI MỚI GÕ VÀ GỬI ĐI
                 "           setTimeout(() => {" +
-				"               var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]') || document.querySelector('.chat-input');" +
+                "               var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]') || document.querySelector('.chat-input');" +
                 "               if (input) {" +
                 "                   input.focus(); input.innerHTML = safeReply;" +
                 "                   input.dispatchEvent(new Event('input', {bubbles: true}));" +
@@ -335,15 +335,26 @@ public class ZaloWebManager {
                 "                       }" +
                 "                       var enterEvt = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, key: 'Enter' });" +
                 "                       input.dispatchEvent(enterEvt);" +
-                "                       ZAutoBridge.onLoginSuccess('Chốt DOM UI QUOTE OK', '');" +
+                "                       // Đợi thêm 400ms rồi kiểm tra input đã trống chưa mới báo thành công" +
+                "                       setTimeout(() => {" +
+                "                           var afterInput = document.querySelector('#richInput') || document.querySelector('[contenteditable=\"true\"]');" +
+                "                           var isEmpty = !afterInput || afterInput.innerHTML === '' || afterInput.innerHTML === '<br>' || afterInput.textContent.trim() === '';" +
+                "                           if (isEmpty) {" +
+                "                               ZAutoBridge.onLoginSuccess('Chốt DOM UI QUOTE OK', '');" +
+                "                           } else {" +
+                "                               ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
+                "                           }" +
+                "                       }, 400);" +
                 "                   }, 300);" +
                 "                   return;" +
                 "               }" +
+                "               // Không tìm thấy input → fallback Vision" +
+                "               ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
                 "           }, 500);" +
-                "       } catch(domErr) {}" +
-
-                // ---- TẦNG 3: NẾU TẤT CẢ ĐỀU SỤP, MỞ MẮT THẦN PYTHON (OPENCV) ----
-                "       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
+                "       } catch(domErr) {" +
+                "           ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
+                "       }" +
+                // TẦNG 3 ĐÃ ĐƯỢC CHUYỂN VÀO BÊN TRONG setTimeout — KHÔNG GỌI Ở ĐÂY NỮA
                 "   }" +
 
                 // LUỒNG KHỞI CHẠY CHÍNH - NẾU KHÔNG TÌM ĐƯỢC NHÓM TRONG SIDEBAR VẪN TIẾP TỤC GỬI
