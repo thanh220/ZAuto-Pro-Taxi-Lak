@@ -7,8 +7,6 @@ import gc
 import random
 import sqlite3
 import logging
-import cv2
-import numpy as np
 from kivy.network.urlrequest import UrlRequest
 import webbrowser
 from logging.handlers import RotatingFileHandler
