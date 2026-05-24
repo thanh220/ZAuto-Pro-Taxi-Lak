@@ -865,7 +865,7 @@ class ZAutoHybridVisionEngine:
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 2.5  
+    APP_VERSION = 2.6  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1479,6 +1479,9 @@ class ZAutoProApp(MDApp):
                             if not self.is_linked:
                                 self.is_linked = True
                                 self.config_data['is_linked'] = True
+                                # Nếu chưa có tên thật thì đặt tên tạm để không hiện "Chưa kết nối"
+                                if self.config_data.get('zalo_name', 'Chưa kết nối Zalo') == 'Chưa kết nối Zalo':
+                                    self.config_data['zalo_name'] = 'Đã kết nối Zalo Web'
                                 self.save_config_silent()
                                 Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
                             continue
@@ -1644,14 +1647,12 @@ class ZAutoProApp(MDApp):
     def _execute_reply_safe(self, payload):
         """HÀM GỌI XUỐNG JAVA PHẢI CHẠY TRÊN UI THREAD CỦA ANDROID"""
         try:
-            # ẨN BÀN PHÍM TRƯỚC KHI CHỐT - tránh bàn phím bật lên khi chốt tự động
+            # ẨN BÀN PHÍM TRƯỚC KHI CHỐT - gọi thẳng method Java mới
             if platform == 'android':
                 try:
                     from jnius import autoclass as _ac
-                    _ctx = _ac('org.kivy.android.PythonActivity').mActivity
-                    _imm = _ctx.getSystemService(_ac('android.content.Context').INPUT_METHOD_SERVICE)
-                    _win = _ctx.getWindow().getDecorView().getWindowToken()
-                    _imm.hideSoftInputFromWindow(_win, 0)
+                    _act = _ac('org.kivy.android.PythonActivity').mActivity
+                    _ac('org.zauto.ZaloWebManager').hideKeyboard(_act)
                 except: pass
 
             if platform == 'android' and getattr(self, 'is_linked', False):
@@ -1907,128 +1908,111 @@ class ZAutoProApp(MDApp):
         self._update_popup.open()
 
     def _start_download_apk(self, apk_url):
-        """Tải APK từ GitHub Releases - tự xử lý redirect, hiện tiến trình %"""
-        import threading
-        import urllib.request
-        import urllib.error
+    import threading, urllib.request, urllib.error, traceback
 
-        save_path = os.path.join(BASE_PATH, 'update.apk')
+    save_path = os.path.join(BASE_PATH, 'update.apk')
+    try:
+        if os.path.exists(save_path):
+            os.remove(save_path)
+    except: pass
 
-        # Xóa file APK cũ/lỗi trước khi tải bản mới
+    def download_thread():
         try:
-            if os.path.exists(save_path):
-                os.remove(save_path)
-        except: pass
+            Clock.schedule_once(lambda dt: setattr(
+                self._update_progress_label, 'text', "Đang kết nối..."), 0)
 
-        def download_thread():
+            opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+            opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
+            urllib.request.install_opener(opener)
+
+            req = urllib.request.Request(apk_url, headers={'User-Agent': 'Mozilla/5.0'})
+            response = urllib.request.urlopen(req, timeout=120)
+
+            total_size = int(response.headers.get('Content-Length', 0))
+            downloaded = 0
+
+            Clock.schedule_once(lambda dt: setattr(
+                self._update_progress_label, 'text', "Đang tải... 0%"), 0)
+
+            with open(save_path, 'wb') as f:
+                while True:
+                    block = response.read(8192)
+                    if not block:
+                        break
+                    f.write(block)
+                    downloaded += len(block)
+                    if total_size > 0:
+                        percent = min(int(downloaded * 100 / total_size), 99)
+                        Clock.schedule_once(
+                            lambda dt, p=percent: setattr(
+                                self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
+
+            file_size = os.path.getsize(save_path)
+            if file_size < 500 * 1024:  # hạ ngưỡng xuống 500KB đề phòng APK nhỏ
+                raise Exception(f"File quá nhỏ ({file_size} bytes) - tải thất bại")
+
+            Clock.schedule_once(lambda dt: setattr(
+                self._update_progress_label, 'text', "✅ Tải xong! Đang mở cài đặt..."), 0)
+            Clock.schedule_once(lambda dt: self._install_apk(save_path), 1.0)
+
+        except Exception as e:
+            err_detail = traceback.format_exc()
+            logger.error(f"Lỗi tải APK:\n{err_detail}")
             try:
-                Clock.schedule_once(lambda dt: setattr(
-                    self._update_progress_label, 'text', "Đang kết nối..."), 0)
+                if os.path.exists(save_path):
+                    os.remove(save_path)
+            except: pass
+            # Hiện lỗi chi tiết lên label — KHÔNG dismiss popup
+            Clock.schedule_once(lambda dt: setattr(
+                self._update_progress_label, 'text', f"❌ {str(e)[:120]}"), 0)
 
-                # GitHub Releases dùng redirect 302 - phải mở thủ công để theo redirect
-                opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
-                opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
-                urllib.request.install_opener(opener)
+    threading.Thread(target=download_thread, daemon=False).start()  # daemon=False giữ app sống
 
-                req = urllib.request.Request(apk_url, headers={'User-Agent': 'Mozilla/5.0'})
-                response = urllib.request.urlopen(req, timeout=60)
 
-                total_size = int(response.headers.get('Content-Length', 0))
-                downloaded = 0
-                block_size = 8192
+def _install_apk(self, apk_path):
+    if platform != 'android':
+        toast(f"[PC] APK đã tải về: {apk_path}")
+        return
 
-                Clock.schedule_once(lambda dt: setattr(
-                    self._update_progress_label, 'text', "Đang tải... 0%"), 0)
+    try:
+        from jnius import autoclass
+        File       = autoclass('java.io.File')
+        Intent     = autoclass('android.content.Intent')
+        Build      = autoclass('android.os.Build')
+        activity   = PythonActivity.mActivity
+        pkg        = activity.getPackageName()
+        apk_file   = File(apk_path)
 
-                with open(save_path, 'wb') as f:
-                    while True:
-                        block = response.read(block_size)
-                        if not block:
-                            break
-                        f.write(block)
-                        downloaded += len(block)
-                        if total_size > 0:
-                            percent = min(int(downloaded * 100 / total_size), 99)
-                            Clock.schedule_once(
-                                lambda dt, p=percent: setattr(
-                                    self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
-
-                # Kiểm tra file hợp lệ - APK phải lớn hơn 1MB
-                file_size = os.path.getsize(save_path)
-                if file_size < 1024 * 1024:
-                    raise Exception(f"File lỗi - chỉ có {file_size} bytes")
-
-                Clock.schedule_once(lambda dt: setattr(
-                    self._update_progress_label, 'text', "✅ Tải xong! Đang mở cài đặt..."), 0)
-                Clock.schedule_once(lambda dt: self._install_apk(save_path), 0.8)
-
-            except Exception as e:
-                logger.error(f"Lỗi tải APK: {e}")
-                # Xóa file lỗi nếu có
-                try:
-                    if os.path.exists(save_path):
-                        os.remove(save_path)
-                except: pass
-                Clock.schedule_once(lambda dt: setattr(
-                    self._update_progress_label, 'text', f"❌ Lỗi: {str(e)[:60]}"), 0)
-
-        threading.Thread(target=download_thread, daemon=True).start()
-
-    def _install_apk(self, apk_path):
-        """Gọi Android mở màn hình cài đặt APK - KHÔNG dismiss popup trước để tránh mất focus Kivy"""
-        if platform == 'android':
+        if Build.VERSION.SDK_INT >= 24:
+            FileProvider = autoclass('androidx.core.content.FileProvider')
+            # Authority phải khớp với AndroidManifest.xml
+            authority = f"{pkg}.provider"  # thử ".provider" thay vì ".fileprovider"
             try:
-                from jnius import autoclass
-                File = autoclass('java.io.File')
-                FileProvider = autoclass('androidx.core.content.FileProvider')
-                Intent = autoclass('android.content.Intent')
-                Build = autoclass('android.os.Build')
-
-                activity = PythonActivity.mActivity
-                pkg = activity.getPackageName()
-                apk_file = File(apk_path)
-
-                if Build.VERSION.SDK_INT >= 24:
-                    uri = FileProvider.getUriForFile(
-                        activity,
-                        f"{pkg}.fileprovider",
-                        apk_file
-                    )
-                else:
-                    Uri = autoclass('android.net.Uri')
-                    uri = Uri.fromFile(apk_file)
-
-                intent = Intent(Intent.ACTION_VIEW)
-                intent.setDataAndType(uri, "application/vnd.android.package-archive")
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                # KHÔNG dùng FLAG_ACTIVITY_NEW_TASK một mình - thêm CLEAR_TOP để tránh ROM kill app
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                intent.addFlags(0x00040000)  # FLAG_ACTIVITY_NO_HISTORY
-
-                # Kích hoạt màn hình cài đặt APK của Android (Hệ điều hành sẽ tự động cài đè / update app)
-                # Tuyệt đối không dùng ACTION_DELETE ở đây vì nó sẽ kill app hiện tại khiến Kivy chết luôn
-                activity.startActivity(intent)
-                logger.info("Đã mở màn hình cài đặt APK")
-
-                # Đợi 1 giây rồi mới đóng popup - tránh mất reference UI trước khi intent xử lý xong
-                def safe_dismiss(dt):
-                    try:
-                        if hasattr(self, '_update_popup') and self._update_popup:
-                            self._update_popup.dismiss()
-                    except: pass
-                Clock.schedule_once(safe_dismiss, 1.0)
-
-            except Exception as e:
-                logger.error(f"Lỗi mở cài đặt APK: {e}")
-                # Thử fallback: ghi đường dẫn ra toast để user tự cài thủ công
-                toast(f"Lỗi cài đặt! Thử mở file: {apk_path}")
-                if hasattr(self, '_update_popup') and self._update_popup:
-                    self._update_popup.dismiss()
+                uri = FileProvider.getUriForFile(activity, authority, apk_file)
+            except Exception:
+                # fallback thử authority khác
+                uri = FileProvider.getUriForFile(activity, f"{pkg}.fileprovider", apk_file)
         else:
-            toast(f"[PC] APK đã tải về: {apk_path}")
-            if hasattr(self, '_update_popup') and self._update_popup:
-                self._update_popup.dismiss()
+            Uri = autoclass('android.net.Uri')
+            uri = Uri.fromFile(apk_file)
+
+        intent = Intent(Intent.ACTION_VIEW)
+        intent.setDataAndType(uri, "application/vnd.android.package-archive")
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        activity.startActivity(intent)
+        logger.info("Đã mở màn hình cài đặt APK")
+
+        Clock.schedule_once(lambda dt: self._update_popup.dismiss()
+                            if hasattr(self, '_update_popup') and self._update_popup else None, 1.5)
+
+    except Exception as e:
+        err = traceback.format_exc()
+        logger.error(f"Lỗi _install_apk:\n{err}")
+        # Hiện lỗi lên label thay vì toast rồi dismiss
+        Clock.schedule_once(lambda dt: setattr(
+            self._update_progress_label, 'text', f"❌ Cài đặt lỗi: {str(e)[:100]}"), 0)
    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
