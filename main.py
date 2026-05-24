@@ -1464,16 +1464,26 @@ class ZAutoProApp(MDApp):
                             Clock.schedule_once(execute_vision_engine, 1.2)
                             continue # Thoát luồng, không chạy lệnh Login bên dưới
 
-                        # --- LOGIC LOGIN GỐC (GIỮ NGUYÊN) ---
-                        self.is_linked = True
+                        # --- BỎ QUA CÁC TIN BÁO NỘI BỘ TỪ CHỐT CUỐC ---
                         zalo_name = parts[1] if len(parts) > 1 else ""
+                        if zalo_name in ('Chốt API QUOTE OK', 'Chốt DOM UI QUOTE OK', 'Đã chốt xong:', 'Đã kết nối'):
+                            continue
+
+                        # --- LOGIC LOGIN THẬT SỰ ---
+                        self.is_linked = True
                         zalo_avatar = parts[2] if len(parts) > 2 else ""
                         if zalo_name: self.config_data['zalo_name'] = zalo_name
                         if zalo_avatar: self.config_data['zalo_avatar'] = zalo_avatar
                         self.save_config_silent()
                         Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
-                        self.safe_toast("Đã liên kết Zalo Web thành công!")
+                        
+                        # Chống spam Toast mỗi khi reload/kết nối lại
+                        if not getattr(self, '_login_toasted', False):
+                            self._login_toasted = True
+                            self.safe_toast("Đã liên kết Zalo Web thành công!")
+                            
                     elif action == 'ZALO_LOGOUT':
+                        self._login_toasted = False  # Đặt lại cờ để lần sau đăng nhập sẽ hiện Toast
                         self.is_linked = False
                         self.config_data['is_linked'] = False
                         self.config_data['zalo_name'] = 'Chưa kết nối Zalo'
