@@ -7,6 +7,9 @@ import gc
 import random
 import sqlite3
 import logging
+import urllib.request
+import urllib.error
+import traceback
 from kivy.network.urlrequest import UrlRequest
 import webbrowser
 from logging.handlers import RotatingFileHandler
@@ -1816,7 +1819,6 @@ class ZAutoProApp(MDApp):
                     context.startActivity(intent)
 
             except Exception:
-                import traceback
                 print(traceback.format_exc())
                 # Backup an toàn nếu điện thoại khách không hỗ trợ hàm check
                 toast("Hãy tìm và cấp quyền cho ứng dụng ZAuto VIP")
@@ -1908,112 +1910,114 @@ class ZAutoProApp(MDApp):
         self._update_popup.open()
 
     def _start_download_apk(self, apk_url):
-        import threading, urllib.request, urllib.error, traceback
-
+        # Đã đưa các import lên đầu file thì ở đây không cần nữa
         save_path = os.path.join(BASE_PATH, 'update.apk')
         try:
             if os.path.exists(save_path):
                 os.remove(save_path)
-        except: pass
+        except: 
+            pass
 
-    def download_thread():
+        def download_thread():
+            try:
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', "Đang kết nối..."), 0)
+
+                opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+                opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
+                urllib.request.install_opener(opener)
+
+                req = urllib.request.Request(apk_url, headers={'User-Agent': 'Mozilla/5.0'})
+                response = urllib.request.urlopen(req, timeout=120)
+
+                total_size = int(response.headers.get('Content-Length', 0))
+                downloaded = 0
+
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', "Đang tải... 0%"), 0)
+
+                with open(save_path, 'wb') as f:
+                    while True:
+                        block = response.read(8192)
+                        if not block:
+                            break
+                        f.write(block)
+                        downloaded += len(block)
+                        if total_size > 0:
+                            percent = min(int(downloaded * 100 / total_size), 99)
+                            Clock.schedule_once(
+                                lambda dt, p=percent: setattr(
+                                    self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
+
+                file_size = os.path.getsize(save_path)
+                if file_size < 500 * 1024:  # hạ ngưỡng xuống 500KB
+                    raise Exception(f"File quá nhỏ ({file_size} bytes) - tải thất bại")
+
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', "✅ Tải xong! Đang mở cài đặt..."), 0)
+                Clock.schedule_once(lambda dt: self._install_apk(save_path), 1.0)
+
+            except Exception as e:
+                err_detail = traceback.format_exc()
+                logger.error(f"Lỗi tải APK:\n{err_detail}")
+                try:
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                except: 
+                    pass
+                # Hiện lỗi chi tiết lên label
+                Clock.schedule_once(lambda dt: setattr(
+                    self._update_progress_label, 'text', f"❌ {str(e)[:120]}"), 0)
+
+        # Khởi chạy luồng download
+        threading.Thread(target=download_thread, daemon=False).start()
+
+
+    def _install_apk(self, apk_path):
+        if platform != 'android':
+            toast(f"[PC] APK đã tải về: {apk_path}")
+            return
+
         try:
-            Clock.schedule_once(lambda dt: setattr(
-                self._update_progress_label, 'text', "Đang kết nối..."), 0)
+            from jnius import autoclass
+            File       = autoclass('java.io.File')
+            Intent     = autoclass('android.content.Intent')
+            Build      = autoclass('android.os.Build')
+            activity   = PythonActivity.mActivity
+            pkg        = activity.getPackageName()
+            apk_file   = File(apk_path)
 
-            opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
-            opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
-            urllib.request.install_opener(opener)
+            if Build.VERSION.SDK_INT >= 24:
+                FileProvider = autoclass('androidx.core.content.FileProvider')
+                # Authority phải khớp với AndroidManifest.xml
+                authority = f"{pkg}.provider"  # thử ".provider" thay vì ".fileprovider"
+                try:
+                    uri = FileProvider.getUriForFile(activity, authority, apk_file)
+                except Exception:
+                    # fallback thử authority khác
+                    uri = FileProvider.getUriForFile(activity, f"{pkg}.fileprovider", apk_file)
+            else:
+                Uri = autoclass('android.net.Uri')
+                uri = Uri.fromFile(apk_file)
 
-            req = urllib.request.Request(apk_url, headers={'User-Agent': 'Mozilla/5.0'})
-            response = urllib.request.urlopen(req, timeout=120)
+            intent = Intent(Intent.ACTION_VIEW)
+            intent.setDataAndType(uri, "application/vnd.android.package-archive")
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-            total_size = int(response.headers.get('Content-Length', 0))
-            downloaded = 0
+            activity.startActivity(intent)
+            logger.info("Đã mở màn hình cài đặt APK")
 
-            Clock.schedule_once(lambda dt: setattr(
-                self._update_progress_label, 'text', "Đang tải... 0%"), 0)
-
-            with open(save_path, 'wb') as f:
-                while True:
-                    block = response.read(8192)
-                    if not block:
-                        break
-                    f.write(block)
-                    downloaded += len(block)
-                    if total_size > 0:
-                        percent = min(int(downloaded * 100 / total_size), 99)
-                        Clock.schedule_once(
-                            lambda dt, p=percent: setattr(
-                                self._update_progress_label, 'text', f"Đang tải... {p}%"), 0)
-
-            file_size = os.path.getsize(save_path)
-            if file_size < 500 * 1024:  # hạ ngưỡng xuống 500KB đề phòng APK nhỏ
-                raise Exception(f"File quá nhỏ ({file_size} bytes) - tải thất bại")
-
-            Clock.schedule_once(lambda dt: setattr(
-                self._update_progress_label, 'text', "✅ Tải xong! Đang mở cài đặt..."), 0)
-            Clock.schedule_once(lambda dt: self._install_apk(save_path), 1.0)
+            Clock.schedule_once(lambda dt: self._update_popup.dismiss()
+                                if hasattr(self, '_update_popup') and self._update_popup else None, 1.5)
 
         except Exception as e:
-            err_detail = traceback.format_exc()
-            logger.error(f"Lỗi tải APK:\n{err_detail}")
-            try:
-                if os.path.exists(save_path):
-                    os.remove(save_path)
-            except: pass
-            # Hiện lỗi chi tiết lên label — KHÔNG dismiss popup
+            err = traceback.format_exc()
+            logger.error(f"Lỗi _install_apk:\n{err}")
+            # Hiện lỗi lên label thay vì toast rồi dismiss
             Clock.schedule_once(lambda dt: setattr(
-                self._update_progress_label, 'text', f"❌ {str(e)[:120]}"), 0)
-
-    threading.Thread(target=download_thread, daemon=False).start()  # daemon=False giữ app sống
-
-
-def _install_apk(self, apk_path):
-    if platform != 'android':
-        toast(f"[PC] APK đã tải về: {apk_path}")
-        return
-
-    try:
-        from jnius import autoclass
-        File       = autoclass('java.io.File')
-        Intent     = autoclass('android.content.Intent')
-        Build      = autoclass('android.os.Build')
-        activity   = PythonActivity.mActivity
-        pkg        = activity.getPackageName()
-        apk_file   = File(apk_path)
-
-        if Build.VERSION.SDK_INT >= 24:
-            FileProvider = autoclass('androidx.core.content.FileProvider')
-            # Authority phải khớp với AndroidManifest.xml
-            authority = f"{pkg}.provider"  # thử ".provider" thay vì ".fileprovider"
-            try:
-                uri = FileProvider.getUriForFile(activity, authority, apk_file)
-            except Exception:
-                # fallback thử authority khác
-                uri = FileProvider.getUriForFile(activity, f"{pkg}.fileprovider", apk_file)
-        else:
-            Uri = autoclass('android.net.Uri')
-            uri = Uri.fromFile(apk_file)
-
-        intent = Intent(Intent.ACTION_VIEW)
-        intent.setDataAndType(uri, "application/vnd.android.package-archive")
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-        activity.startActivity(intent)
-        logger.info("Đã mở màn hình cài đặt APK")
-
-        Clock.schedule_once(lambda dt: self._update_popup.dismiss()
-                            if hasattr(self, '_update_popup') and self._update_popup else None, 1.5)
-
-    except Exception as e:
-        err = traceback.format_exc()
-        logger.error(f"Lỗi _install_apk:\n{err}")
-        # Hiện lỗi lên label thay vì toast rồi dismiss
-        Clock.schedule_once(lambda dt: setattr(
-            self._update_progress_label, 'text', f"❌ Cài đặt lỗi: {str(e)[:100]}"), 0)
-   
+                self._update_progress_label, 'text', f"❌ Cài đặt lỗi: {str(e)[:100]}"), 0)
+       
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.app_running = True
