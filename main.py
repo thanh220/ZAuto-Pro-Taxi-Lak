@@ -1467,6 +1467,12 @@ class ZAutoProApp(MDApp):
                         # --- XỬ LÝ CÁC TIN NỘI BỘ TỪ CHỐT CUỐC ---
                         zalo_name = parts[1] if len(parts) > 1 else ""
                         if zalo_name in ('Chốt API QUOTE OK', 'Chốt DOM UI QUOTE OK', 'Đã chốt xong:'):
+                            # Java xác nhận gửi thật → báo thành công lúc này mới đúng
+                            self.safe_toast("✅ Chốt cuốc thành công!")
+                            if self.config_data.get('sw_voice', True):
+                                try:
+                                    self.ui_queue.put_nowait(('speak', "Chốt cuốc xe thành công"))
+                                except: pass
                             continue
                         # 'Đã kết nối' = JS inject xong → cập nhật trạng thái liên kết Zalo
                         if zalo_name == 'Đã kết nối':
@@ -1611,12 +1617,12 @@ class ZAutoProApp(MDApp):
         
         try:
             self.reply_queue.put({
-                'group': group, 'conversation_id': conversation_id, 'msg_id': msg_id, 'reply_text': reply_text, 'msg_content': msg_content
+                'group': group, 'conversation_id': conversation_id, 'msg_id': msg_id, 'reply_text': reply_text, 'msg_content': msg_content,
+                'group_name': group  # lưu tên nhóm để báo khi Java confirm
             }, timeout=0.3)
-
-            self.safe_toast(f"Đã chốt {group}. Tạm dừng quét {int(user_delay)}s.")
-            if self.config_data.get('sw_voice', True):
-                self.ui_queue.put_nowait(('speak', f"Chốt cuốc xe thành công, {group}"))
+            # Chỉ báo "đang gửi", KHÔNG báo thành công ở đây
+            # Toast thành công thật sẽ đến từ callback Java (Chốt API QUOTE OK / Chốt DOM UI QUOTE OK)
+            self.safe_toast(f"⏳ Đang gửi vào nhóm {group}...")
         except queue.Full: pass
 
     @run_on_ui_thread
