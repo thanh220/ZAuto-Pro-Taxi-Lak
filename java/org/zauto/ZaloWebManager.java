@@ -660,7 +660,7 @@ public class ZaloWebManager {
             "                           let btnSend = null;" +
                                         // QUÉT CÁC SELECTOR CHUẨN XÁC TỪ DỮ LIỆU CỦA BẠN
             "                           let primarySelector = '#chat-input-container-id > div.chat-input-container__right-layout > div.normal-buttons-group > div.send-msg-btn';" +
-            "                           let fallbackSelectors = ['.fa-Sent-msg_24_Line', '[data-translate-title=\"STR_SEND\"]'];" +
+            "                           let fallbackSelectors = ['.fa-Sent-msg_24_Line', '[contenteditable=true]'];" +
             
             "                           let el = document.querySelector(primarySelector);" +
             "                           if (el) {" +
@@ -1009,8 +1009,8 @@ public class ZaloWebManager {
         }
     }
 
-    // =========================================================
-    // HỆ THỐNG PHÁT BẢN GHI ÂM CHUẨN XÁC THEO ID
+    /// =========================================================
+    // HỆ THỐNG PHÁT BẢN GHI ÂM CHUẨN XÁC THEO ID (ĐÃ SỬA LỖI NỐI CHUỖI)
     // =========================================================
     public static void playSpecificAudio(final Activity activity, final String conversationId, final String msgId) {
         Activity safeActivity = activityRef != null ? activityRef.get() : activity;
@@ -1019,8 +1019,7 @@ public class ZaloWebManager {
         safeActivity.runOnUiThread(() -> {
             String js = "(function() {" +
                 "   console.log('ZAuto: Bat dau tim nut Play cho ' + '" + msgId + "');" +
-                // ĐÃ XÓA \" Ở DÒNG DƯỚI NÀY
-                "   let item = document.querySelector('.msg-item[anim-data-id=' + conversationId + '] .conv-item');" +
+                "   let item = document.querySelector('.msg-item[anim-data-id=" + conversationId + "] .conv-item');" +
                 "   if(item) {" +
                 "       let key = Object.keys(item).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
                 "       if (key && item[key]) {" +
@@ -1028,21 +1027,17 @@ public class ZaloWebManager {
                 "           else if (item[key].return && item[key].return.memoizedProps.onClick) item[key].return.memoizedProps.onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
                 "       } else { item.click(); }" +
                 "   }" +
-
                 "   setTimeout(() => {" +
                 "       let findAndPlay = () => {" +
-                // ĐÃ XÓA \" Ở 2 DÒNG DƯỚI NÀY
-                "           let msgNode = document.querySelector('[data-msg-id=' + msgId + ']');" +
-                "           if (!msgNode) msgNode = document.querySelector('div[id*=' + msgId + ']');" +
+                "           let msgNode = document.querySelector('[data-msg-id=" + msgId + "]');" +
+                "           if (!msgNode) msgNode = document.querySelector('div[id*=" + msgId + "]');" +
                 "           if (!msgNode) {" +
                 "               let allMsgs = document.querySelectorAll('.chat-item');" +
                 "               if(allMsgs.length > 0) msgNode = allMsgs[allMsgs.length - 1];" +
                 "           }" +
                 "           if (!msgNode) return false;" +
-                
-                // ĐÃ XÓA \" Ở DÒNG SELECTOR NÀY
+                // ĐÃ THÊM DẤU + Ở CUỐI DÒNG NÀY ĐỂ NỐI CHUỖI JAVA
                 "           let playBtn = msgNode.querySelector('.fa-PlayCircle_24_Filled, [class*=PlayCircle], .v-audio, .icon-play-audio, i[class*=play], div[class*=play-btn], svg[class*=play]');" +
-                
                 "           if(playBtn) {" +
                 "               console.log('ZAuto: Da tim thay nut Play dung ID!');" +
                 "               playBtn.click();" +
@@ -1052,7 +1047,6 @@ public class ZaloWebManager {
                 "           }" +
                 "           return false;" +
                 "       };" +
-
                 "       if (!findAndPlay()) {" +
                 "           let retryCount = 0;" +
                 "           let interval = setInterval(() => {" +
