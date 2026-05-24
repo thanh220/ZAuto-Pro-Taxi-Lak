@@ -520,6 +520,7 @@ MDScreen:
                                 MDSwitch:
                                     id: sw_filter
                                     pos_hint: {'center_y': .5}
+                                    on_active: app.on_filter_switch(self.active)
                             
                         # --- HƯỚNG DẪN DÙNG TIẾNG VIỆT ---
                         MDBoxLayout:
@@ -864,7 +865,7 @@ class ZAutoHybridVisionEngine:
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 2.3  
+    APP_VERSION = 2.4  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -906,6 +907,10 @@ class ZAutoProApp(MDApp):
 
         except Exception:
             print(traceback.format_exc())
+    def on_filter_switch(self, active_state):
+        self.config_data['sw_filter'] = active_state
+        self.save_config_silent()
+        toast("Đã BẬT lọc từ khóa" if active_state else "Đã TẮT lọc từ khóa - Nhận mọi tin")        
     def build(self):
         from kivy.core.clipboard import Clipboard # Thêm dòng này
         self.Clipboard = Clipboard
@@ -1468,7 +1473,13 @@ class ZAutoProApp(MDApp):
                         self.save_config_silent()
                         Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
                         self.safe_toast("Đã liên kết Zalo Web thành công!")
-                        
+                    elif action == 'ZALO_LOGOUT':
+                        self.is_linked = False
+                        self.config_data['is_linked'] = False
+                        self.config_data['zalo_name'] = 'Chưa kết nối Zalo'
+                        self.save_config_silent()
+                        Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
+                        self.safe_toast("Zalo đã đăng xuất! Vui lòng quét QR lại.")    
                     elif action == 'GROUPS_DATA':
                         groups_json = parts[1] if len(parts) > 1 else ""
                         if groups_json:
@@ -2090,12 +2101,14 @@ class ZAutoProApp(MDApp):
             if not getattr(self, '_webview_timer', None):
                 self._webview_timer = Clock.schedule_interval(self._sync_webview_pos, 0.2) # Tăng tốc độ đồng bộ
 
-            if platform == 'android' and self.webview_inited:
-                # 4. GỌI LỆNH ĐÁNH THỨC WEB (BẮT BUỘC)
-                from jnius import autoclass
-                PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                # Đánh thức nhân Javascript của WebView
-                autoclass('org.zauto.ZaloWebManager').onResume(PythonActivity.mActivity)
+            def _do_resume(dt):
+                if platform == 'android' and getattr(self, 'webview_inited', False):
+                    try:
+                        from jnius import autoclass
+                        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                        autoclass('org.zauto.ZaloWebManager').onResume(PythonActivity.mActivity)
+                    except Exception: pass
+            Clock.schedule_once(_do_resume, 0.5)
         else:
             # Khi rời Tab: Chỉ ẩn đi chứ TUYỆT ĐỐI không hủy WebView
             if getattr(self, '_webview_timer', None):
@@ -2128,7 +2141,9 @@ class ZAutoProApp(MDApp):
             
             new_bounds = (int(x), int(android_y), int(w), int(h))
             if new_bounds == getattr(self, 'last_webview_bounds', None):
-                return # Cache bounds -> Không đổi thì không gọi Bridge Java
+                return
+            if int(w) <= 0 or int(h) <= 0:
+                return  # Container chưa layout xong, chờ tick tiếp theo
             
             self.last_webview_bounds = new_bounds
             
