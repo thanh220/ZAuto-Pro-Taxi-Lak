@@ -865,7 +865,7 @@ class ZAutoHybridVisionEngine:
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 2.4  
+    APP_VERSION = 2.5  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1231,7 +1231,7 @@ class ZAutoProApp(MDApp):
                 # Tạo một khóa định danh duy nhất cho tin thoại dựa trên mã hội thoại và mã tin nhắn
                 # Nếu msg_id là TIME_ thì thêm timestamp thực vào key để không bị chặn nhau
                 if msg_id.startswith("TIME_") or not msg_id or len(msg_id) < 4:
-                    audio_unique_key = f"{conv_id}_{msg_id}_{int(time.time())}"
+                    audio_unique_key = f"{conv_id}_{msg_id}_dur{duration}"
                 else:
                     audio_unique_key = f"{conv_id}_{msg_id}"
                 if audio_unique_key in self.audio_seen_set:
@@ -1464,9 +1464,17 @@ class ZAutoProApp(MDApp):
                             Clock.schedule_once(execute_vision_engine, 1.2)
                             continue # Thoát luồng, không chạy lệnh Login bên dưới
 
-                        # --- BỎ QUA CÁC TIN BÁO NỘI BỘ TỪ CHỐT CUỐC ---
+                        # --- XỬ LÝ CÁC TIN NỘI BỘ TỪ CHỐT CUỐC ---
                         zalo_name = parts[1] if len(parts) > 1 else ""
-                        if zalo_name in ('Chốt API QUOTE OK', 'Chốt DOM UI QUOTE OK', 'Đã chốt xong:', 'Đã kết nối'):
+                        if zalo_name in ('Chốt API QUOTE OK', 'Chốt DOM UI QUOTE OK', 'Đã chốt xong:'):
+                            continue
+                        # 'Đã kết nối' = JS inject xong → cập nhật trạng thái liên kết Zalo
+                        if zalo_name == 'Đã kết nối':
+                            if not self.is_linked:
+                                self.is_linked = True
+                                self.config_data['is_linked'] = True
+                                self.save_config_silent()
+                                Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
                             continue
 
                         # --- LOGIC LOGIN THẬT SỰ ---
@@ -1575,24 +1583,25 @@ class ZAutoProApp(MDApp):
         replies = [r.strip() for r in raw_reply.split(',') if r.strip()]
         final_reply = random.choice(replies) if replies else "Ok nhận"
 
-        # ĐÃ FIX: Chuyền đầy đủ nội dung tin nhắn xuống để Java Click Đúp đè tin
-        self.queue_reply(card_widget.group_text, getattr(card_widget, 'conversation_id', ''), getattr(card_widget, 'msg_id', ''), final_reply, getattr(card_widget, 'raw_msg', card_widget.msg_text))
+        # force_manual=True: bấm tay không bị chặn bởi đồng hồ delay 30s
+        self.queue_reply(card_widget.group_text, getattr(card_widget, 'conversation_id', ''), getattr(card_widget, 'msg_id', ''), final_reply, getattr(card_widget, 'raw_msg', card_widget.msg_text), force_manual=True)
         toast(f"Đang chốt: {card_widget.group_text}")
         self.remove_ride(card_widget)
 
-    def queue_reply(self, group, conversation_id, msg_id, reply_text, msg_content=""):
+    def queue_reply(self, group, conversation_id, msg_id, reply_text, msg_content="", force_manual=False):
         now = time.time()
         try:
             user_delay = float(self.config_data.get('global_delay', '30'))
         except:
             user_delay = 30.0
 
-        # THÊM LOCK BẢO VỆ CHỐNG TRÙNG LẶP CHỐT ĐÔI CUỐC XE CHUẨN REALTIME
-        with self.reply_time_lock:
-            time_passed = now - getattr(self, 'last_global_reply_time', 0)
-            if time_passed < user_delay:
-                return 
-            self.last_global_reply_time = now # Cập nhật thời gian khóa ngay lập tức trong Lock
+        # Chỉ kiểm tra delay khi là auto chốt, bấm tay thì luôn cho qua
+        if not force_manual:
+            with self.reply_time_lock:
+                time_passed = now - getattr(self, 'last_global_reply_time', 0)
+                if time_passed < user_delay:
+                    return 
+                self.last_global_reply_time = now
 
         cache_key = f"{conversation_id}_{msg_id}_{hashlib.md5(reply_text.encode('utf-8')).hexdigest()[:6]}"
         if now - self.last_reply_time.get(cache_key, 0) < 10: return 
@@ -1976,19 +1985,9 @@ class ZAutoProApp(MDApp):
                 intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 intent.addFlags(0x00040000)  # FLAG_ACTIVITY_NO_HISTORY
 
-                # Dismiss popup SAU khi đã fire intent để Kivy không mất context trước
-                # Gỡ app cũ trước nếu đã cài - tránh lỗi signature conflict
-                try:
-                    uninstall_intent = Intent(Intent.ACTION_DELETE)
-                    Uri = autoclass('android.net.Uri')
-                    uninstall_intent.setData(Uri.parse(f"package:{pkg}"))
-                    uninstall_intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    activity.startActivity(uninstall_intent)
-                    # Chờ 3 giây để user xác nhận gỡ xong rồi mới mở cài đặt
-                    Clock.schedule_once(lambda dt: activity.startActivity(intent), 3.0)
-                except:
-                    # Nếu gỡ thất bại thì cứ cài đè thẳng
-                    activity.startActivity(intent)
+                # Kích hoạt màn hình cài đặt APK của Android (Hệ điều hành sẽ tự động cài đè / update app)
+                # Tuyệt đối không dùng ACTION_DELETE ở đây vì nó sẽ kill app hiện tại khiến Kivy chết luôn
+                activity.startActivity(intent)
                 logger.info("Đã mở màn hình cài đặt APK")
 
                 # Đợi 1 giây rồi mới đóng popup - tránh mất reference UI trước khi intent xử lý xong
