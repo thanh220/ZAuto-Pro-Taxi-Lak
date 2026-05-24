@@ -379,10 +379,10 @@ public class ZaloWebManager {
                 "   }" +
 
                 // LUỒNG KHỞI CHẠY CHÍNH - NẾU KHÔNG TÌM ĐƯỢC NHÓM TRONG SIDEBAR VẪN TIẾP TỤC GỬI
-                \"   openGroup(function(opened) {\" +
-                \"       var targetNode = findTargetMessage();\" +
-                \"       executeSend(targetNode);\" +
-                \"   });\" +
+                "   openGroup(function(opened) {" +
+                "       var targetNode = findTargetMessage();" +
+                "       executeSend(targetNode);" +
+                "   });" +
 
                 "} catch(e) { console.log('ZAuto Reply Error:', e); }" +
                 "})();";
