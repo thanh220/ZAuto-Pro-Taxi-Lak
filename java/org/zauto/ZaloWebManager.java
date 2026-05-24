@@ -180,9 +180,10 @@ public class ZaloWebManager {
                 "   var targetTime = '" + safeTime + "';" +
 
                 // BẢO LƯU HOÀN TOÀN CƠ CHẾ CHUYỂN NHÓM TRÊN GIAO DIỆN CŨ
+                // FIX: Xóa toàn bộ \"
                 "   function openGroup(callback) {" +
                 "       if (!convId || convId === '') { callback(true); return; }" +
-                "       var groupItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item') || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]') || document.querySelector('[id*=\"' + convId + '\"]');" +
+                "       var groupItem = document.querySelector('.msg-item[anim-data-id=' + convId + '] .conv-item') || document.querySelector('.msg-item[anim-data-id=' + convId + ']') || document.querySelector('[id*=' + convId + ']');" +
                 "       if (!groupItem) {" +
                 "           var allConvItems = document.querySelectorAll('.msg-item, .conv-item');" +
                 "           for (var i = 0; i < allConvItems.length; i++) {" +
@@ -208,14 +209,15 @@ public class ZaloWebManager {
                 "   }" +
 
                 // BẢO LƯU HOÀN TOÀN LOGIC PHÂN TÍCH VÀ ĐỊNH VỊ TIN NHẮN THEO HARDWARE ID VÀ VOICE
+                // FIX: Xóa toàn bộ \"
                 "   function findTargetMessage() {" +
                 "       var targetNode = null;" +
                 "       if (targetMsgId && !targetMsgId.startsWith('TIME_') && targetMsgId.length > 3) {" +
-                "           targetNode = document.querySelector('[data-msg-id=\"' + targetMsgId + '\"]') || document.querySelector('div[id*=\"' + targetMsgId + '\"]');" +
+                "           targetNode = document.querySelector('[data-msg-id=' + targetMsgId + ']') || document.querySelector('div[id*=' + targetMsgId + ']');" +
                 "       }" +
                 "       if (!targetNode) {" +
                 "           var isVoice = safeSearchText.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i') || safeSearchText.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]') || safeSearchText.toLowerCase().includes('ghi \\u00e2m') || safeSearchText.toLowerCase().includes('voice') || safeSearchText.toLowerCase().includes('audio');" +
-                "           var allItems = document.querySelectorAll('.chat-item, .message-item, [class*=\"message\"], [class*=\"chat-bubble\"], div[id^=\"msg_\"], div[id^=\"msg-\"]');" +
+                "           var allItems = document.querySelectorAll('.chat-item, .message-item, [class*=message], [class*=chat-bubble], div[id^=msg_], div[id^=msg-]');" +
                 "           for (var i = allItems.length - 1; i >= 0; i--) {" +
                 "               var el = allItems[i];" +
                 "               var elHtml = el.innerHTML ? el.innerHTML.toLowerCase() : '';" +
@@ -228,7 +230,7 @@ public class ZaloWebManager {
                 "           }" +
                 "       }" +
                 "       if (!targetNode) {" +
-                "           var allMsgs = document.querySelectorAll('div[id^=\"msg_\"], div[id^=\"msg-\"], .chat-item, .message-item');" +
+                "           var allMsgs = document.querySelectorAll('div[id^=msg_], div[id^=msg-], .chat-item, .message-item');" +
                 "           if (allMsgs.length > 0) targetNode = allMsgs[allMsgs.length - 1];" +
                 "       }" +
                 "       return targetNode;" +
@@ -244,7 +246,7 @@ public class ZaloWebManager {
                 "       let msgReactObj = null;" +
                 "       if (targetNode) {" +
                 "           targetNode.scrollIntoView({block:'center', behavior:'smooth'});" +
-                // Cách 1: đi ngược lên 10 tầng cha qua fiber.return (Gemini đề xuất - nhanh và chính xác)
+                // Cách 1: đi ngược lên 10 tầng cha qua fiber.return
                 "           try {" +
                 "               let fKey = Object.keys(targetNode).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
                 "               if (fKey && targetNode[fKey]) {" +
@@ -264,7 +266,7 @@ public class ZaloWebManager {
                 "                   }" +
                 "               }" +
                 "           } catch(e) {}" +
-                // Cách 2 fallback: quét xuống các con (giữ nguyên logic cũ làm dự phòng)
+                // Cách 2 fallback: quét xuống các con
                 "           if (!msgReactObj) {" +
                 "               let allNodes = Array.from(targetNode.querySelectorAll('*'));" +
                 "               for (let n of allNodes) {" +
@@ -314,7 +316,6 @@ public class ZaloWebManager {
                 // --- TẦNG 2: DOM UI - CLICK ĐÚP THÔNG MINH THEO VỊ TRÍ TIN NHẮN NHÓM/2 NGƯỜI ---
                 "       try {" +
                 "           if (targetNode) {" +
-                // CHÚ Ý: ĐÃ SẠCH BÓNG KÝ TỰ LỖI Ở ĐÂY
                 "               let bubble = targetNode.querySelector('.card--text, .card-content, div[class*=bubble], .message-chat-inner, [class*=chat-item__content]') || targetNode;" +
                 "               let quoteSuccess = false;" +
 
@@ -328,24 +329,18 @@ public class ZaloWebManager {
                 "                   }" +
                 "               }" +
 
-                // Ưu tiên 2: MouseEvent tọa độ thông minh - phân biệt tin nhóm (trái) vs 2 người (phải)
+                // Ưu tiên 2: MouseEvent tọa độ thông minh
                 "               if (!quoteSuccess) {" +
                 "                   let rect = bubble.getBoundingClientRect();" +
                 "                   if (rect.width > 0 && rect.height > 0) {" +
                 "                       let screenW = window.innerWidth || document.documentElement.clientWidth;" +
                 "                       let cy = rect.top + (rect.height / 2);" +
-                // Kiểm tra tin nhắn nằm bên trái (tin nhóm) hay bên phải (tin mình/2 người)
-                // Nếu bong bóng nằm ở nửa trái màn hình → click vào vùng trống BÊN PHẢI bong bóng
-                // Nếu bong bóng nằm ở nửa phải màn hình → click vào vùng trống BÊN TRÁI bong bóng
                 "                       let cx;" +
                 "                       if (rect.left < screenW / 2) {" +
-                // Tin nhóm (nằm trái): vùng trống ở bên PHẢI bong bóng
                 "                           cx = Math.min(rect.right + 30, screenW - 15);" +
                 "                       } else {" +
-                // Tin 2 người (nằm phải): vùng trống ở bên TRÁI bong bóng  
                 "                           cx = Math.max(rect.left - 30, 15);" +
                 "                       }" +
-                // CHÚ Ý: ĐÃ SẠCH BÓNG KÝ TỰ LỖI Ở ĐÂY
                 "                       let wrapper = targetNode.closest('.chat-message, .message-container, [class*=message-row]') || targetNode;" +
                 "                       wrapper.dispatchEvent(new MouseEvent('dblclick', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy, buttons:1}));" +
                 "                   }" +
@@ -354,19 +349,15 @@ public class ZaloWebManager {
 
                 // Đợi Zalo bật thanh "Đang trả lời" rồi gõ và gửi
                 "           setTimeout(() => {" +
-                // CHÚ Ý: ĐÃ SẠCH BÓNG KÝ TỰ LỖI Ở ĐÂY
                 "               var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=true]') || document.querySelector('.chat-input');" +
                 "               if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId); return; }" +
                 "               input.focus(); input.innerHTML = safeReply;" +
                 "               input.dispatchEvent(new Event('input', {bubbles:true}));" +
                 "               setTimeout(() => {" +
-                // CHÚ Ý: ĐÃ SẠCH BÓNG KÝ TỰ LỖI Ở ĐÂY
                 "                   var btnSend = document.querySelector('#chat-input-container-id .send-msg-btn') || document.querySelector('.fa-Sent-msg_24_Line') || document.querySelector('[data-translate-title=STR_SEND]');" +
                 "                   if (btnSend) { var tgt = btnSend.closest('.z--btn--v2') || btnSend.parentNode || btnSend; tgt.click(); }" +
                 "                   input.dispatchEvent(new KeyboardEvent('keydown', {bubbles:true, cancelable:true, keyCode:13, key:'Enter'}));" +
-                // Verify sau 400ms: input trống = gửi thật, còn nội dung = thất bại
                 "                   setTimeout(() => {" +
-                // CHÚ Ý: ĐÃ SẠCH BÓNG KÝ TỰ LỖI Ở ĐÂY
                 "                       var chk = document.querySelector('#richInput') || document.querySelector('[contenteditable=true]');" +
                 "                       var sent = !chk || chk.innerHTML==='' || chk.innerHTML==='<br>' || chk.textContent.trim()==='';" +
                 "                       ZAutoBridge.onLoginSuccess(sent ? 'Chốt DOM UI QUOTE OK' : 'TRIGGER_VISION_FALLBACK', sent ? '' : realQuoteId);" +
@@ -378,7 +369,7 @@ public class ZaloWebManager {
                 "       }" +
                 "   }" +
 
-                // LUỒNG KHỞI CHẠY CHÍNH - NẾU KHÔNG TÌM ĐƯỢC NHÓM TRONG SIDEBAR VẪN TIẾP TỤC GỬI
+                // LUỒNG KHỞI CHẠY CHÍNH
                 "   openGroup(function(opened) {" +
                 "       var targetNode = findTargetMessage();" +
                 "       executeSend(targetNode);" +
@@ -526,8 +517,6 @@ public class ZaloWebManager {
                         super.onPageFinished(view, url);
                         CookieManager.getInstance().flush();
                         
-                        // ĐÃ FIX: Không ép viewport 1024px nữa để User-Agent Desktop tự do render chuẩn tỉ lệ Zalo Web
-                        
                         view.postDelayed(() -> {
                             try {
                                 if (hiddenWebView != null) injectSidebarObserver(hiddenWebView);
@@ -568,10 +557,10 @@ public class ZaloWebManager {
 				rootParams.leftMargin = -2000; 
 				rootParams.topMargin = -2000;
 
-				webLayout.setAlpha(0.01f);  // ← GIỮ LẠI
-				webLayout.setTranslationZ(-100f);  // ← GIỮ LẠI (tính năng mới, không ảnh hưởng xấu)
+				webLayout.setAlpha(0.01f);  
+				webLayout.setTranslationZ(-100f); 
 
-				if (webLayout.getParent() != null) {  // ← GIỮ LẠI
+				if (webLayout.getParent() != null) {  
 					((ViewGroup) webLayout.getParent()).removeView(webLayout);
 				}
 
@@ -579,7 +568,6 @@ public class ZaloWebManager {
 
                 // Chỉ bật visible cho WebView, không gọi bringToFront
                 hiddenWebView.setVisibility(View.VISIBLE);
-                // Bỏ hết lệnh requestFocus() gây dizz app
 
                 // KHỞI TẠO GIỌNG NÓI TIẾNG VIỆT CÓ BẢO VỆ FALLBACK
                 if (tts == null) {
@@ -618,8 +606,7 @@ public class ZaloWebManager {
             // HÀM GỬI REPLY ĐA TẦNG (DÙNG SELECTOR CHUẨN + ENTER + BÁO CÁO TOAST)
             "   window.zautoSendReply = function(convId, fakeMsgId, text, groupName) {" +
             "       try {" +
-                        // 1. CHUYỂN SANG NHÓM CẦN CHỐT
-            "           let item = document.querySelector('.msg-item[anim-data-id=\"'+convId+'\"] .conv-item');" +
+            "           let item = document.querySelector('.msg-item[anim-data-id=' + convId + '] .conv-item');" +
             "           if(item) {" +
             "               let key = Object.keys(item).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
             "               if (key && item[key]) {" +
@@ -631,21 +618,19 @@ public class ZaloWebManager {
             "           setTimeout(() => {" +
             "               let realMsgId = '';" +
             "               try {" +
-            "                   let msgs = document.querySelectorAll('[id^=\"msg_\"]');" +
+            "                   let msgs = document.querySelectorAll('[id^=msg_]');" +
             "                   if (msgs && msgs.length > 0) {" +
             "                       let lastMsg = msgs[msgs.length - 1];" +
             "                       realMsgId = lastMsg.getAttribute('id').substring(4);" +
             "                   }" +
             "               } catch(err) { realMsgId = ''; }" +
             
-                        // 2. THỬ GỬI BẰNG API NGẦM TRƯỚC
             "               if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
             "                   let req = { toid: convId, msg: text, type: 1 };" +
             "                   if (realMsgId && realMsgId !== '') req.quote = { globalMsgId: realMsgId, msg: text, type: 1 };" +
             "                   window.zMessenger.sendMessage(req);" +
             "                   ZAutoBridge.onLoginSuccess('Đã chốt xong:', groupName);" + 
             "               } else {" +
-                        // 3. NẾU BỊ CHẶN API -> DÙNG PHƯƠNG ÁN UI (ĐẬP PHÍM)
             "                   let input = document.getElementById('richInput');" +
 			"                   if(input) {" +
 			"                       input.focus();" +
@@ -658,9 +643,8 @@ public class ZaloWebManager {
             "                       let trySend = setInterval(() => {" +
             "                           attempts++;" +
             "                           let btnSend = null;" +
-                                        // QUÉT CÁC SELECTOR CHUẨN XÁC TỪ DỮ LIỆU CỦA BẠN
             "                           let primarySelector = '#chat-input-container-id > div.chat-input-container__right-layout > div.normal-buttons-group > div.send-msg-btn';" +
-            "                           let fallbackSelectors = ['.fa-Sent-msg_24_Line', '[contenteditable=true]'];" +
+            "                           let fallbackSelectors = ['.fa-Sent-msg_24_Line', '[data-translate-title=STR_SEND]'];" +
             
             "                           let el = document.querySelector(primarySelector);" +
             "                           if (el) {" +
@@ -675,44 +659,40 @@ public class ZaloWebManager {
             "                               }" +
             "                           }" +
             
-                                        // THỰC HIỆN CLICK VÀO NÚT
             "                           if (btnSend) {" +
             "                               btnSend.click();" +
             "                               let key = Object.keys(btnSend).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
             "                               if(key && btnSend[key] && btnSend[key].onClick) btnSend[key].onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
             "                           }" +
             
-                                        // BỒI THÊM PHÍM ENTER ẢO VÀO KHUNG CHAT
             "                           let enterEvent = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, keyCode: 13, which: 13, key: 'Enter', code: 'Enter' });" +
             "                           input.dispatchEvent(enterEvent);" +
             
-                                        // KIỂM TRA THÀNH CÔNG VÀ DỪNG VÒNG LẶP
             "                           if (input.innerHTML === '' || input.innerHTML === '<br>') {" +
             "                               clearInterval(trySend);" +
-            "                               ZAutoBridge.onLoginSuccess('Đã chốt xong:', groupName);" + // Báo cáo Toast về Kivy
+            "                               ZAutoBridge.onLoginSuccess('Đã chốt xong:', groupName);" + 
             "                           } else if (attempts > 12) {" +
-                                            // Dừng lại sau 3 giây (12 lần) để chống treo máy
             "                               clearInterval(trySend);" +
             "                           }" +
             "                       }, 250);" + 
             "                   }" +
             "               }" +
-            "           }, 800);" + // Đợi 0.8 giây để Zalo load màn hình chat
+            "           }, 800);" + 
             "       } catch(e) {}" +
             "   };" +
+
             // HÀM QUÉT SIDEBAR (ĐÃ FIX ZALO ĐỔI GIAO DIỆN & TÌM ĐÚNG ID TIN)
             "   function scanConvItem(msgItemEl) {" +
             "       try {" +
             "           let convItem = msgItemEl.querySelector('.conv-item') || msgItemEl;" + 
             "           if(!convItem) return;" +
             
-            "           let nameEl = convItem.querySelector('.conv-item-title__name, [class*=\"name\"]');" +
-            "           let bodyEl = convItem.querySelector('.conv-item-body, [class*=\"snippet\"], [class*=\"message-text\"]');" +
+            "           let nameEl = convItem.querySelector('.conv-item-title__name, [class*=name]');" +
+            "           let bodyEl = convItem.querySelector('.conv-item-body, [class*=snippet], [class*=message-text]');" +
             "           if(!nameEl) return;" + 
             "           let groupName = (nameEl.textContent || nameEl.innerText || '').trim();" +
             "           let msgText = bodyEl ? (bodyEl.textContent || bodyEl.innerText || '').trim() : '';" +
             
-            // --- ĐÃ GỘP KHAI BÁO ID VÀO ĐÂY, XÓA DÒNG let convId CŨ GÂY LỖI ---
             "           let realMsgId = ''; var fullTxt = ''; let convId = '';" +
             
             // DEEP BYPASS: QUÉT VÉT CẠN MỌI TẦNG REACT FIBER (8 TẦNG) ĐỂ LỘT TRẦN ID BỊ GIẤU
@@ -747,11 +727,11 @@ public class ZaloWebManager {
             "               }" +
             "           } catch(err) {}" +
             
-            "           if (fullTxt && fullTxt.length > msgText.length && !fullTxt.startsWith('{\"')) {" +
+            "           if (fullTxt && fullTxt.length > msgText.length && !fullTxt.startsWith('{')) {" +
             "               msgText = fullTxt.trim();" +
             "           }" +
             
-            "           let isVoiceNode = bodyEl ? bodyEl.querySelector('[class*=\"audio\"], [class*=\"voice\"], [class*=\"Voice\"], svg') : null;" +
+            "           let isVoiceNode = bodyEl ? bodyEl.querySelector('[class*=audio], [class*=voice], [class*=Voice], svg') : null;" +
             "           let isTimeOnly = bodyEl ? (/^[0-9]{1,2}:[0-9]{2}$/.test(msgText) || /^[0-9]{1,2}:[0-9]{2}$/.test(bodyEl.innerText.trim())) : false;" + 
             "           let seconds = -1; let isVoice = false;" +
             
@@ -764,7 +744,7 @@ public class ZaloWebManager {
             "                   msgText = '[Tin nhắn thoại]';" +
             "               }" +
             "               try {" +
-            "                   let timeNode = msgItemEl.querySelector('[class*=\"audio-time\"], [class*=\"duration\"], span[class*=\"time\"]');" +
+            "                   let timeNode = msgItemEl.querySelector('[class*=audio-time], [class*=duration], span[class*=time]');" +
             "                   if (timeNode) {" +
             "                       let durationText = timeNode.innerText.trim();" + 
             "                       if (durationText.includes(':')) {" +
@@ -773,7 +753,7 @@ public class ZaloWebManager {
             "                       }" +
             "                   }" +
             "               } catch(err) { seconds = -1; }" +
-            "               msgText = msgText + '%%%' + seconds;" + // Vẫn phải gửi số giây xuống cho Python để Auto Play
+            "               msgText = msgText + '%%%' + seconds;" + 
             "           }" +
 
             "           if(!groupName) return;" +
@@ -782,25 +762,24 @@ public class ZaloWebManager {
             "               return;" +
             "           }" +
 
-            "           let timeEl = convItem.querySelector('.conv-item-title__time, [class*=\"time\"]');" +
+            "           let timeEl = convItem.querySelector('.conv-item-title__time, [class*=time]');" +
             "           let timeString = timeEl ? (timeEl.textContent || '').trim() : '';" +
 
             // =========================================================================
             // FIX LỖI LẶP TIN: Dùng stableId cố định, không phụ thuộc vào đồng hồ TIME_
-            // Khi Zalo đổi "Vừa xong" -> "1 phút", fingerprint KHÔNG thay đổi
             // =========================================================================
             "           let stableId;" +
             "           if (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_')) {" +
             "               stableId = realMsgId;" +
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
-            "               if (isVoice) {\" +
-            "                   let voiceKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + msgText.replace(/%%%[-0-9]+$/, '').trim().substring(0, 30));\" +
-            "                   stableId = 'VOICE_' + voiceKey;\" +
+            "               if (isVoice) {" +
+            "                   let voiceKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + msgText.replace(/%%%[-0-9]+$/, '').trim().substring(0, 30));" +
+            "                   stableId = 'VOICE_' + voiceKey;" +
             "               } else {" +
             "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
             "               }" +
-            "           }" + // Bổ sung dấu ngoặc đóng } cực kỳ quan trọng ở đây
+            "           }" +
             "           let fp = 'MSG|' + convId + '|' + stableId;" +
 
             "           if (!realMsgId || realMsgId === '') {" +
@@ -1010,7 +989,7 @@ public class ZaloWebManager {
     }
 
     /// =========================================================
-    // HỆ THỐNG PHÁT BẢN GHI ÂM CHUẨN XÁC THEO ID (ĐÃ SỬA LỖI NỐI CHUỖI)
+    // HỆ THỐNG PHÁT BẢN GHI ÂM CHUẨN XÁC THEO ID
     // =========================================================
     public static void playSpecificAudio(final Activity activity, final String conversationId, final String msgId) {
         Activity safeActivity = activityRef != null ? activityRef.get() : activity;
@@ -1036,7 +1015,6 @@ public class ZaloWebManager {
                 "               if(allMsgs.length > 0) msgNode = allMsgs[allMsgs.length - 1];" +
                 "           }" +
                 "           if (!msgNode) return false;" +
-                // ĐÃ THÊM DẤU + Ở CUỐI DÒNG NÀY ĐỂ NỐI CHUỖI JAVA
                 "           let playBtn = msgNode.querySelector('.fa-PlayCircle_24_Filled, [class*=PlayCircle], .v-audio, .icon-play-audio, i[class*=play], div[class*=play-btn], svg[class*=play]');" +
                 "           if(playBtn) {" +
                 "               console.log('ZAuto: Da tim thay nut Play dung ID!');" +
