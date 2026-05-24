@@ -286,6 +286,36 @@ public class ZaloWebManager {
                 "           if (realQuoteId && realQuoteId.length > 4) realQuoteId = realQuoteId.replace('msg-','').replace('msg_','');" +
                 "       }" +
 
+                // --- TẦNG 0: LẤY THẲNG TỪ REACT CONVERSATION STORE ---
+                "       if (!msgReactObj && targetMsgId && targetMsgId.length > 3 && !targetMsgId.startsWith('TIME_')) {" +
+                "           try {" +
+                "               let searchRoots = [document.getElementById('app'), document.querySelector('#main-app'), document.querySelector('[class*=chat-window]'), document.querySelector('[class*=conversation]')].filter(Boolean);" +
+                "               outer: for (let root of searchRoots) {" +
+                "                   let rk = Object.keys(root).find(k => k.startsWith('__reactFiber'));" +
+                "                   if (!rk) continue;" +
+                "                   let node = root[rk]; let depth = 0;" +
+                "                   while (node && depth < 80) {" +
+                "                       let ms = node.memoizedState;" +
+                "                       if (ms) {" +
+                "                           let arr = ms.memoizedState || ms.queue;" +
+                "                           if (Array.isArray(arr)) {" +
+                "                               for (let m of arr) {" +
+                "                                   if (m && typeof m === 'object') {" +
+                "                                       let fid = String(m.msgId || m.globalMsgId || m.cliMsgId || '');" +
+                "                                       if (fid === targetMsgId || fid === realQuoteId) {" +
+                "                                           msgReactObj = m; realQuoteId = fid; break outer;" +
+                "                                       }" +
+                "                                   }" +
+                "                               }" +
+                "                           }" +
+                "                       }" +
+                "                       node = node.child || node.sibling || (node.return ? node.return.sibling : null);" +
+                "                       depth++;" +
+                "                   }" +
+                "               }" +
+                "           } catch(e) { console.log('Tang0 err:', e); }" +
+                "       }" +
+
                 // --- TẦNG 1: API CORE (nhanh nhất, không cần click đúp) ---
                 "       let apiAlive = false;" +
                 "       try { apiAlive = window.zMessenger && typeof window.zMessenger.sendMessage === 'function'; } catch(e) {}" +
@@ -351,7 +381,7 @@ public class ZaloWebManager {
                 "           setTimeout(() => {" +
                 "               var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=true]') || document.querySelector('.chat-input');" +
                 "               if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId); return; }" +
-                "               input.focus(); input.innerHTML = safeReply;" +
+                "               input.setAttribute('readonly','true'); input.focus(); input.removeAttribute('readonly'); input.innerHTML = safeReply;" +
                 "               input.dispatchEvent(new Event('input', {bubbles:true}));" +
                 "               setTimeout(() => {" +
                 "                   var btnSend = document.querySelector('#chat-input-container-id .send-msg-btn') || document.querySelector('.fa-Sent-msg_24_Line') || document.querySelector('[data-translate-title=STR_SEND]');" +
@@ -633,7 +663,7 @@ public class ZaloWebManager {
             "               } else {" +
             "                   let input = document.getElementById('richInput');" +
 			"                   if(input) {" +
-			"                       input.focus();" +
+			"                       input.setAttribute('readonly','true'); input.focus(); input.removeAttribute('readonly');" +
 			"                       input.innerHTML = '';" +
 			"                       document.execCommand('insertText', false, text);" +
 			"                       input.dispatchEvent(new Event('input', {bubbles:true}));" +
@@ -731,7 +761,8 @@ public class ZaloWebManager {
             "               msgText = fullTxt.trim();" +
             "           }" +
             
-            "           let isVoiceNode = bodyEl ? bodyEl.querySelector('[class*=audio], [class*=voice], [class*=Voice], svg') : null;" +
+            "           let isVoiceNode = bodyEl ? bodyEl.querySelector('[class*=audio],[class*=voice],[class*=Voice],[class*=record],[class*=AudioMessage],[class*=VoiceMsg]') : null;" +
+            "           if (!isVoiceNode && bodyEl) { let svgs = bodyEl.querySelectorAll('svg'); for (let s of svgs) { if (s.closest('[class*=audio],[class*=voice],[class*=record],[class*=Voice]')) { isVoiceNode = s; break; } } }" +
             "           let isTimeOnly = bodyEl ? (/^[0-9]{1,2}:[0-9]{2}$/.test(msgText) || /^[0-9]{1,2}:[0-9]{2}$/.test(bodyEl.innerText.trim())) : false;" + 
             "           let seconds = -1; let isVoice = false;" +
             
@@ -988,8 +1019,32 @@ public class ZaloWebManager {
         }
     }
 
+    // =========================================================
+    // ẨN BÀN PHÍM CỨNG - GỌI TRƯỚC MỌI THAO TÁC CHỐT CUỐC
+    // =========================================================
+    public static void hideKeyboard(final Activity activity) {
+        Activity safeActivity = activityRef != null ? activityRef.get() : activity;
+        if (safeActivity == null) return;
+        safeActivity.runOnUiThread(() -> {
+            try {
+                android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager)
+                    safeActivity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                android.view.View decorView = safeActivity.getWindow().getDecorView();
+                android.os.IBinder token = decorView.getWindowToken();
+                if (imm != null && token != null) {
+                    imm.hideSoftInputFromWindow(token, 0);
+                }
+                if (hiddenWebView != null) {
+                    hiddenWebView.evaluateJavascript(
+                        "(function(){ try { var a = document.activeElement; if(a && a !== document.body) a.blur(); document.body.focus(); } catch(e){} })();", null);
+                }
+            } catch (Exception e) {}
+        });
+    }
+
     /// =========================================================
-    // HỆ THỐNG PHÁT BẢN GHI ÂM CHUẨN XÁC THEO ID
+    // HỆ THỐNG PHÁT BẢN GHI ÂM CHUẨN XÁC THEO ID (ĐÃ SỬA LỖI NỐI CHUỖI)
     // =========================================================
     public static void playSpecificAudio(final Activity activity, final String conversationId, final String msgId) {
         Activity safeActivity = activityRef != null ? activityRef.get() : activity;
@@ -1015,14 +1070,18 @@ public class ZaloWebManager {
                 "               if(allMsgs.length > 0) msgNode = allMsgs[allMsgs.length - 1];" +
                 "           }" +
                 "           if (!msgNode) return false;" +
-                "           let playBtn = msgNode.querySelector('.fa-PlayCircle_24_Filled, [class*=PlayCircle], .v-audio, .icon-play-audio, i[class*=play], div[class*=play-btn], svg[class*=play]');" +
+                "           let playBtn = msgNode.querySelector('.fa-PlayCircle_24_Filled,[class*=PlayCircle],[class*=play-circle],[class*=PlayCircle24],.v-audio,.icon-play-audio,[class*=AudioPlayer] button,[class*=audio-player] button,[class*=VoiceMessage] button,[class*=voice-message] button,button[class*=play],i[class*=play],div[class*=play-btn],div[class*=btn-play]');" +
+                "           if (!playBtn) { let ac = msgNode.querySelector('[class*=audio],[class*=voice],[class*=Voice],[class*=record],[class*=AudioMessage],[class*=VoiceMsg]'); if (ac) { playBtn = ac.querySelector('button,svg,i,div[role=button]') || ac; } }" +
+                "           if (!playBtn) { let svgs = msgNode.querySelectorAll('svg'); for (let sv of svgs) { if (sv.closest('[class*=audio],[class*=voice],[class*=record],[class*=Voice]')) { playBtn = sv; break; } } }" +
                 "           if(playBtn) {" +
-                "               console.log('ZAuto: Da tim thay nut Play dung ID!');" +
+                "               console.log('ZAuto: Da tim thay nut Play!');" +
+                "               playBtn.scrollIntoView({block:'center'});" +
                 "               playBtn.click();" +
                 "               let k = Object.keys(playBtn).find(key => key.startsWith('__reactEventHandlers') || key.startsWith('__reactFiber'));" +
-                "               if(k && playBtn[k] && playBtn[k].onClick) playBtn[k].onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
+                "               if(k && playBtn[k]) { let h = playBtn[k].onClick || (playBtn[k].return && playBtn[k].return.memoizedProps && playBtn[k].return.memoizedProps.onClick); if(h) h({preventDefault:()=>{}, stopPropagation:()=>{}}); }" +
                 "               return true;" +
                 "           }" +
+                "           console.log('ZAuto: KHONG tim thay nut Play, class:', msgNode.className);" +
                 "           return false;" +
                 "       };" +
                 "       if (!findAndPlay()) {" +
