@@ -1617,15 +1617,28 @@ class ZAutoProApp(MDApp):
         
         try:
             self.reply_queue.put({
-                'group': group, 'conversation_id': conversation_id, 'msg_id': msg_id, 'reply_text': reply_text, 'msg_content': msg_content,
+                'group': group, 
+                'conversation_id': conversation_id, 
+                'msg_id': msg_id, 
+                'reply_text': reply_text, 
+                'msg_content': msg_content,
                 'group_name': group
             }, timeout=0.3)
-            # Chỉ báo "đang gửi" — toast thành công thật đến từ callback Java
+            
+            # Thông báo cho người dùng
             self.safe_toast(f"⏳ Đang gửi vào nhóm {group}...")
+            
+            # Xử lý giọng nói
             if self.config_data.get('sw_voice', True):
-                try: self.ui_queue.put_nowait(('speak', f"Đang chốt nhóm {re.sub(r'[^\w\s]', '', group)}"))
-                except: pass
-        except queue.Full: pass
+                try:
+                    # Đảm bảo regex không chứa ký tự lạ gây lỗi bộ giải mã giọng nói
+                    clean_group_name = re.sub(r'[^\w\s]', '', str(group))
+                    self.ui_queue.put_nowait(('speak', f"Đang chốt nhóm {clean_group_name}"))
+                except Exception as e:
+                    logging.error(f"Lỗi giọng nói: {e}")
+                    pass
+        except queue.Full:
+            pass
 
     @run_on_ui_thread
     def _execute_reply_safe(self, payload):
