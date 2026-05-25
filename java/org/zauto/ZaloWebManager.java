@@ -55,7 +55,7 @@ public class ZaloWebManager {
     public static void forceWakeup() {
         safeEvaluateJs(
             "try { " +
-            "   if(window.zauto_sidebar_observer) { document.querySelectorAll('.msg-item').forEach(scanConvItem); } " +
+            "   if(window.scanConvItem) { document.querySelectorAll('.msg-item').forEach(window.scanConvItem); } " +
             "   document.body.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, clientX: 100, clientY: 100}));" +
             "} catch(e) {}"
         );
@@ -211,30 +211,41 @@ public class ZaloWebManager {
                 // BẢO LƯU HOÀN TOÀN LOGIC PHÂN TÍCH VÀ ĐỊNH VỊ TIN NHẮN THEO HARDWARE ID VÀ VOICE
                 // FIX: Xóa toàn bộ \"
                 "   function findTargetMessage() {" +
-                "       var targetNode = null;" +
-                "       if (targetMsgId && !targetMsgId.startsWith('TIME_') && targetMsgId.length > 3) {" +
-                "           targetNode = document.querySelector('[data-msg-id=' + targetMsgId + ']') || document.querySelector('div[id*=' + targetMsgId + ']');" +
-                "       }" +
-                "       if (!targetNode) {" +
-                "           var isVoice = safeSearchText.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i') || safeSearchText.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]') || safeSearchText.toLowerCase().includes('ghi \\u00e2m') || safeSearchText.toLowerCase().includes('voice') || safeSearchText.toLowerCase().includes('audio');" +
-                "           var allItems = document.querySelectorAll('.chat-item, .message-item, [class*=message], [class*=chat-bubble], div[id^=msg_], div[id^=msg-]');" +
-                "           for (var i = allItems.length - 1; i >= 0; i--) {" +
-                "               var el = allItems[i];" +
-                "               var elHtml = el.innerHTML ? el.innerHTML.toLowerCase() : '';" +
-                "               if (isVoice) {" +
-                "                   if (elHtml.includes('audio') || elHtml.includes('ico-voice') || elHtml.includes('fa-playcircle') || elHtml.includes('v-audio')) { targetNode = el; break; }" +
-                "               } else if (safeSearchText.length > 2) {" +
-                "                   var elText = (el.innerText || el.textContent || '').trim();" +
-                "                   if (elText.includes(safeSearchText)) { targetNode = el; break; }" +
-                "               }" +
-                "           }" +
-                "       }" +
-                "       if (!targetNode) {" +
-                "           var allMsgs = document.querySelectorAll('div[id^=msg_], div[id^=msg-], .chat-item, .message-item');" +
-                "           if (allMsgs.length > 0) targetNode = allMsgs[allMsgs.length - 1];" +
-                "       }" +
-                "       return targetNode;" +
-                "   }" +
+				"       var targetNode = null;" +
+				"       if (targetMsgId && !targetMsgId.startsWith('TIME_') && targetMsgId.length > 3) {" +
+				// THÊM MỚI: bb_msg_id_ và data-qid từ DOM thực tế ảnh 4+5
+				"           targetNode = document.querySelector('[id=\"bb_msg_id_' + targetMsgId + '\"]')" +
+				"                     || document.querySelector('[data-msg-id=\"' + targetMsgId + '\"]')" +
+				"                     || document.querySelector('div[id*=\"' + targetMsgId + '\"]');" +
+				// THÊM MỚI: tìm qua data-qid (format: convId@msgId_...)
+				"           if (!targetNode) {" +
+				"               var frames = document.querySelectorAll('[data-qid]');" +
+				"               for (var fi = 0; fi < frames.length; fi++) {" +
+				"                   var q = frames[fi].getAttribute('data-qid') || '';" +
+				"                   if (q.includes(targetMsgId)) { targetNode = frames[fi]; break; }" +
+				"               }" +
+				"           }" +
+				"       }" +
+				"       if (!targetNode) {" +
+				"           var isVoice = safeSearchText.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i') || safeSearchText.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]') || safeSearchText.toLowerCase().includes('ghi \\u00e2m') || safeSearchText.toLowerCase().includes('voice') || safeSearchText.toLowerCase().includes('audio');" +
+				"           var allItems = document.querySelectorAll('.chat-item, .message-item, [class*=message], [class*=chat-bubble], div[id^=msg_], div[id^=msg-]');" +
+				"           for (var i = allItems.length - 1; i >= 0; i--) {" +
+				"               var el = allItems[i];" +
+				"               var elHtml = el.innerHTML ? el.innerHTML.toLowerCase() : '';" +
+				"               if (isVoice) {" +
+				"                   if (elHtml.includes('audio') || elHtml.includes('ico-voice') || elHtml.includes('fa-playcircle') || elHtml.includes('v-audio')) { targetNode = el; break; }" +
+				"               } else if (safeSearchText.length > 2) {" +
+				"                   var elText = (el.innerText || el.textContent || '').trim();" +
+				"                   if (elText.includes(safeSearchText)) { targetNode = el; break; }" +
+				"               }" +
+				"           }" +
+				"       }" +
+				"       if (!targetNode) {" +
+				"           var allMsgs = document.querySelectorAll('.chat-item.flx, div[id^=msg_], div[id^=msg-], .chat-item, .message-item');" +
+				"           if (allMsgs.length > 0) targetNode = allMsgs[allMsgs.length - 1];" +
+				"       }" +
+				"       return targetNode;" +
+				"   }" +
 
                 // =========================================================================
                 // 2. HÀM ĐIỀU PHỐI CHỐT CUỐC - NÂNG CẤP: FIBER ĐI NGƯỢC + TỌA ĐỘ VÙNG TRỐNG THÔNG MINH
@@ -379,21 +390,51 @@ public class ZaloWebManager {
 
                 // Đợi Zalo bật thanh "Đang trả lời" rồi gõ và gửi
                 "           setTimeout(() => {" +
-                "               var input = document.querySelector('#richInput') || document.querySelector('[contenteditable=true]') || document.querySelector('.chat-input');" +
-                "               if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId); return; }" +
-                "               input.setAttribute('readonly','true'); input.focus(); input.removeAttribute('readonly'); input.innerHTML = safeReply;" +
-                "               input.dispatchEvent(new Event('input', {bubbles:true}));" +
-                "               setTimeout(() => {" +
-                "                   var btnSend = document.querySelector('#chat-input-container-id .send-msg-btn') || document.querySelector('.fa-Sent-msg_24_Line') || document.querySelector('[data-translate-title=STR_SEND]');" +
-                "                   if (btnSend) { var tgt = btnSend.closest('.z--btn--v2') || btnSend.parentNode || btnSend; tgt.click(); }" +
-                "                   input.dispatchEvent(new KeyboardEvent('keydown', {bubbles:true, cancelable:true, keyCode:13, key:'Enter'}));" +
-                "                   setTimeout(() => {" +
-                "                       var chk = document.querySelector('#richInput') || document.querySelector('[contenteditable=true]');" +
-                "                       var sent = !chk || chk.innerHTML==='' || chk.innerHTML==='<br>' || chk.textContent.trim()==='';" +
-                "                       ZAutoBridge.onLoginSuccess(sent ? 'Chốt DOM UI QUOTE OK' : 'TRIGGER_VISION_FALLBACK', sent ? '' : realQuoteId);" +
-                "                   }, 400);" +
-                "               }, 300);" +
-                "           }, 600);" +
+				// Tìm ô nhập đúng theo DOM thực tế ảnh 5
+				"               var input = document.querySelector('#chat-input-content')" +
+				"                        || document.querySelector('#richInput')" +
+				"                        || document.querySelector('[contenteditable=true][class*=chat-input]')" +
+				"                        || document.querySelector('[contenteditable=true]')" +
+				"                        || document.querySelector('.chat-input');" +
+				"               if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId); return; }" +
+				// Kiểm tra thanh quote-banner có hiện không (xác nhận click đúp thành công)
+				"               var quoteBanner = document.querySelector('.chat-box-input__heading .quote-banner')" +
+				"                              || document.querySelector('.rel.quote-banner')" +
+				"                              || document.querySelector('[class*=quote-banner]');" +
+				"               console.log('ZAuto: Quote banner = ' + (quoteBanner ? 'CO' : 'KHONG'));" +
+				// Điền nội dung vào ô chat
+				"               input.setAttribute('readonly','true');" +
+				"               input.focus();" +
+				"               input.removeAttribute('readonly');" +
+				"               input.innerHTML = safeReply;" +
+				"               input.dispatchEvent(new Event('input', {bubbles:true}));" +
+				"               input.dispatchEvent(new Event('change', {bubbles:true}));" +
+				"               setTimeout(() => {" +
+				// Tìm nút gửi theo DOM thực tế: i.fa.fa-Sent-msg_24_Line nằm trong z--btn--v2
+				"                   var iSend = document.querySelector('i.fa.fa-Sent-msg_24_Line')" +
+				"                            || document.querySelector('.fa-Sent-msg_24_Line')" +
+				"                            || document.querySelector('[class*=Sent-msg_24_Line]');" +
+				"                   var btnSend = iSend ? (iSend.closest('.z--btn--v2') || iSend.closest('button') || iSend.parentNode) : null;" +
+				"                   if (!btnSend) btnSend = document.querySelector('#chat-input-container-id .send-msg-btn')" +
+				"                                        || document.querySelector('[data-translate-title=STR_SEND]');" +
+				// Cách 1: Click nút gửi DOM
+				"                   if (btnSend) {" +
+				"                       btnSend.click();" +
+				"                       btnSend.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));" +
+				"                   }" +
+				// Cách 2: Phòng thủ bằng Enter nếu nút không hoạt động
+				"                   input.dispatchEvent(new KeyboardEvent('keydown', {bubbles:true, cancelable:true, keyCode:13, key:'Enter', which:13}));" +
+				"                   input.dispatchEvent(new KeyboardEvent('keypress', {bubbles:true, cancelable:true, keyCode:13, key:'Enter', which:13}));" +
+				"                   input.dispatchEvent(new KeyboardEvent('keyup', {bubbles:true, cancelable:true, keyCode:13, key:'Enter', which:13}));" +
+				"                   setTimeout(() => {" +
+				"                       var chk = document.querySelector('#chat-input-content')" +
+				"                              || document.querySelector('#richInput')" +
+				"                              || document.querySelector('[contenteditable=true]');" +
+				"                       var sent = !chk || chk.innerHTML==='' || chk.innerHTML==='<br>' || chk.textContent.trim()==='';" +
+				"                       ZAutoBridge.onLoginSuccess(sent ? 'Chốt DOM UI QUOTE OK' : 'TRIGGER_VISION_FALLBACK', sent ? '' : realQuoteId);" +
+				"                   }, 500);" +
+				"               }, 400);" +
+				"           }, 700);" +
                 "       } catch(domErr) {" +
                 "           ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
                 "       }" +
@@ -446,6 +487,11 @@ public class ZaloWebManager {
 		@JavascriptInterface
         public void onLogout() {
             pythonMsgQueue.add("ZALO_LOGOUT|||");
+        }
+
+        @JavascriptInterface
+        public void onError(String code, String detail) {
+            Log.e(TAG, "JS_ERROR: " + code + " - " + detail);
         }
     }
 
@@ -828,7 +874,7 @@ public class ZaloWebManager {
             "           }" +
             "       } catch(e) {}" +
             "   }" +
-
+            "   window.scanConvItem = scanConvItem;" +
             // HÀM THU THẬP DANH SÁCH NHÓM
             "   function collectGroups() {" +
             "       try {" +
@@ -1048,52 +1094,102 @@ public class ZaloWebManager {
     // =========================================================
     public static void playSpecificAudio(final Activity activity, final String conversationId, final String msgId) {
         Activity safeActivity = activityRef != null ? activityRef.get() : activity;
-        if (safeActivity == null || hiddenWebView == null) return;
+		if (safeActivity == null || hiddenWebView == null) return;
 
-        safeActivity.runOnUiThread(() -> {
-            String js = "(function() {" +
-                "   console.log('ZAuto: Bat dau tim nut Play cho ' + '" + msgId + "');" +
-                "   let item = document.querySelector('.msg-item[anim-data-id=" + conversationId + "] .conv-item');" +
-                "   if(item) {" +
-                "       let key = Object.keys(item).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
-                "       if (key && item[key]) {" +
-                "           if (item[key].onClick) item[key].onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
-                "           else if (item[key].return && item[key].return.memoizedProps.onClick) item[key].return.memoizedProps.onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
-                "       } else { item.click(); }" +
-                "   }" +
-                "   setTimeout(() => {" +
-                "       let findAndPlay = () => {" +
-                "           let msgNode = document.querySelector('[data-msg-id=" + msgId + "]');" +
-                "           if (!msgNode) msgNode = document.querySelector('div[id*=" + msgId + "]');" +
-                "           if (!msgNode) {" +
-                "               let allMsgs = document.querySelectorAll('.chat-item');" +
-                "               if(allMsgs.length > 0) msgNode = allMsgs[allMsgs.length - 1];" +
-                "           }" +
-                "           if (!msgNode) return false;" +
-                "           let playBtn = msgNode.querySelector('.fa-PlayCircle_24_Filled,[class*=PlayCircle],[class*=play-circle],[class*=PlayCircle24],.v-audio,.icon-play-audio,[class*=AudioPlayer] button,[class*=audio-player] button,[class*=VoiceMessage] button,[class*=voice-message] button,button[class*=play],i[class*=play],div[class*=play-btn],div[class*=btn-play]');" +
-                "           if (!playBtn) { let ac = msgNode.querySelector('[class*=audio],[class*=voice],[class*=Voice],[class*=record],[class*=AudioMessage],[class*=VoiceMsg]'); if (ac) { playBtn = ac.querySelector('button,svg,i,div[role=button]') || ac; } }" +
-                "           if (!playBtn) { let svgs = msgNode.querySelectorAll('svg'); for (let sv of svgs) { if (sv.closest('[class*=audio],[class*=voice],[class*=record],[class*=Voice]')) { playBtn = sv; break; } } }" +
-                "           if(playBtn) {" +
-                "               console.log('ZAuto: Da tim thay nut Play!');" +
-                "               playBtn.scrollIntoView({block:'center'});" +
-                "               playBtn.click();" +
-                "               let k = Object.keys(playBtn).find(key => key.startsWith('__reactEventHandlers') || key.startsWith('__reactFiber'));" +
-                "               if(k && playBtn[k]) { let h = playBtn[k].onClick || (playBtn[k].return && playBtn[k].return.memoizedProps && playBtn[k].return.memoizedProps.onClick); if(h) h({preventDefault:()=>{}, stopPropagation:()=>{}}); }" +
-                "               return true;" +
-                "           }" +
-                "           console.log('ZAuto: KHONG tim thay nut Play, class:', msgNode.className);" +
-                "           return false;" +
-                "       };" +
-                "       if (!findAndPlay()) {" +
-                "           let retryCount = 0;" +
-                "           let interval = setInterval(() => {" +
-                "               retryCount++;" +
-                "               if (findAndPlay() || retryCount > 8) clearInterval(interval);" +
-                "           }, 500);" +
-                "       }" +
-                "   }, 1500);" + 
-                "})();";
-            hiddenWebView.evaluateJavascript(js, null);
-        });
-    }
+		safeActivity.runOnUiThread(() -> {
+			String safeConvId = conversationId != null ? conversationId.replace("'", "\\'") : "";
+			String safeMsgId  = msgId != null ? msgId.replace("'", "\\'") : "";
+
+			String js =
+			"(function() {" +
+			"  var convId = '" + safeConvId + "';" +
+			"  var tgtMsgId = '" + safeMsgId + "';" +
+			"  console.log('ZAuto-Play: convId=' + convId + ' msgId=' + tgtMsgId);" +
+
+			// BƯỚC 1: Mở đúng nhóm sidebar nếu chưa mở
+			"  function openConv(cb) {" +
+			"    var sideItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item')" +
+			"                || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]');" +
+			"    if (sideItem) {" +
+			"      sideItem.scrollIntoView({block:'center'});" +
+			"      sideItem.click();" +
+			"      var rk = Object.keys(sideItem).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
+			"      if (rk && sideItem[rk]) {" +
+			"        var h = sideItem[rk].onClick || (sideItem[rk].return && sideItem[rk].return.memoizedProps && sideItem[rk].return.memoizedProps.onClick);" +
+			"        if (h) h({preventDefault:function(){}, stopPropagation:function(){}});" +
+			"      }" +
+			"      setTimeout(cb, 2000);" +
+			"    } else { cb(); }" +
+			"  }" +
+
+			// BƯỚC 2: Tìm nút Play theo DOM thực tế ảnh 1+2+3
+			"  function findPlayBtn() {" +
+			// Ưu tiên 1: voice-mCntr_ container chứa msgId — CHÍNH XÁC NHẤT
+			"    var wrapper = document.querySelector('[id*=\"voice-mCntr_\"][id*=\"' + tgtMsgId + '\"] .voice-message-normal-old__player-control-wrapper')" +
+			"                || document.querySelector('[id*=\"voice-mCntr_\"][id*=\"' + tgtMsgId + '\"]');" +
+			// Ưu tiên 2: bb_msg_id_ chứa msgId
+			"    if (!wrapper) wrapper = document.querySelector('[id=\"bb_msg_id_' + tgtMsgId + '\"]');" +
+			// Ưu tiên 3: data-qid chứa msgId
+			"    if (!wrapper) {" +
+			"      var frames = document.querySelectorAll('[data-qid]');" +
+			"      for (var i = 0; i < frames.length; i++) {" +
+			"        if ((frames[i].getAttribute('data-qid') || '').includes(tgtMsgId)) { wrapper = frames[i]; break; }" +
+			"      }" +
+			"    }" +
+			// Ưu tiên 4: fallback lấy player-control-wrapper cuối cùng trên màn hình
+			"    if (!wrapper) {" +
+			"      var allVoice = document.querySelectorAll('.voice-message-normal-old__player-control-wrapper');" +
+			"      if (allVoice.length > 0) wrapper = allVoice[allVoice.length - 1];" +
+			"    }" +
+			"    if (!wrapper) return null;" +
+			// Tìm <i class="fa fa-PlayCircle_24_Filled"> — ĐÚNG CLASS TỪ DOM ẢNH
+			"    return wrapper.querySelector('i.fa.fa-PlayCircle_24_Filled')" +
+			"        || wrapper.querySelector('.fa-PlayCircle_24_Filled')" +
+			"        || wrapper.querySelector('[class*=\"PlayCircle_24_Filled\"]')" +
+			"        || wrapper.querySelector('[class*=\"PlayCircle\"]')" +
+			"        || wrapper.querySelector('i[class*=\"play\"]')" +
+			"        || wrapper.querySelector('button')" +
+			"        || wrapper;" +
+			"  }" +
+
+			// BƯỚC 3: Click nút play — 4 cách theo thứ tự ưu tiên
+			"  function clickPlay(btn) {" +
+			"    if (!btn) return false;" +
+			"    btn.scrollIntoView({block:'center', behavior:'smooth'});" +
+			// Cách 1: DOM click
+			"    btn.click();" +
+			// Cách 2: MouseEvent bubble
+			"    btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));" +
+			// Cách 3: React fiber/props handler
+			"    var rk = Object.keys(btn).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
+			"    if (rk && btn[rk]) {" +
+			"      var p = btn[rk].memoizedProps || btn[rk].pendingProps || btn[rk];" +
+			"      var h = p.onClick || (btn[rk].return && btn[rk].return.memoizedProps && btn[rk].return.memoizedProps.onClick);" +
+			"      if (h) h({preventDefault:function(){}, stopPropagation:function(){}});" +
+			"    }" +
+			// Cách 4: Click wrapper cha voice-message-normal-old__player-control-wrapper
+			"    var pw = btn.closest('.voice-message-normal-old__player-control-wrapper');" +
+			"    if (pw && pw !== btn) {" +
+			"      pw.click();" +
+			"      pw.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));" +
+			"    }" +
+			"    console.log('ZAuto-Play: Clicked:', btn.className);" +
+			"    return true;" +
+			"  }" +
+
+			// LUỒNG CHÍNH: Mở nhóm → tìm nút → click → retry 10 lần
+			"  openConv(function() {" +
+			"    var btn = findPlayBtn();" +
+			"    if (clickPlay(btn)) return;" +
+			"    var tries = 0;" +
+			"    var iv = setInterval(function() {" +
+			"      tries++;" +
+			"      if (clickPlay(findPlayBtn()) || tries >= 10) clearInterval(iv);" +
+			"    }, 600);" +
+			"  });" +
+			"})();";
+
+			hiddenWebView.evaluateJavascript(js, null);
+		});
+	}
 }
