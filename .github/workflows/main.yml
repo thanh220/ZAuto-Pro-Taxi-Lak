@@ -76,7 +76,15 @@ jobs:
           if [ ! -f "res/xml/file_paths.xml" ]; then
             echo '<?xml version="1.0" encoding="utf-8"?><paths><files-path name="apk_files" path="." /></paths>' > res/xml/file_paths.xml
           fi
-
+      - name: Setup Keystore
+        run: |
+          # Kiểm tra file đã tồn tại trong repo chưa
+          if [ -f "zauto.keystore" ]; then
+            echo "Keystore found, proceeding..."
+          else
+            echo "::error::File zauto.keystore không tồn tại trong repo!"
+            exit 1
+          fi
       - name: Validate Project
         run: |
           echo "========== PYTHON CHECK =========="
