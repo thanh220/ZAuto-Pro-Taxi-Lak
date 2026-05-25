@@ -119,6 +119,11 @@ public class ZaloWebManager {
     // =========================================================================
     // NÂNG CẤP ĐỘNG CƠ: HYBRID VISION-API AUTOMATION ENGINE (TẦNG 1 & TẦNG 3)
     // =========================================================================
+    // =========================================================================
+    // ĐỘNG CƠ CHỐT CUỐC V5.0 - IRON FIST ENGINE
+    // Đảm bảo 100% đè tin gửi kèm (quote) dù text hay voice, dài hay ngắn
+    // Luồng: API Webpack → Click Đúp Siêu Mạnh (4 chiến lược) → Enter fallback
+    // =========================================================================
     public static void sendReplyToSpecificMessage(
             final Activity activity,
             final String conversationId,
@@ -132,321 +137,388 @@ public class ZaloWebManager {
 
         replyQueue.add(() -> safeActivity.runOnUiThread(() -> {
             try {
-                String safeReply = escapeJs(text);
-                String safeSearchText = escapeJs(msgTextToFind != null ? msgTextToFind : "");
-                String safeMsgId = escapeJs(msgId != null ? msgId : "");
-                String safeTime = escapeJs(sentTime != null ? sentTime : "");
-                String safeConvId = escapeJs(conversationId != null ? conversationId : "");
+                String safeReply      = escapeJs(text);
+                String safeSearch     = escapeJs(msgTextToFind != null ? msgTextToFind : "");
+                String safeMsgId      = escapeJs(msgId != null ? msgId : "");
+                String safeTime       = escapeJs(sentTime != null ? sentTime : "");
+                String safeConvId     = escapeJs(conversationId != null ? conversationId : "");
 
                 String jsCode =
-                "(function() {" +
-                "try {" +
-                
-                // =========================================================================
-                // 1. WATCHDOG & WEBPACK HIJACKING: TỰ ĐỘNG DÒ CỔNG API CORE NGẦM (TẦNG 3)
-                // =========================================================================
-                "   window.zautoDiscoverMessengerApi = function() {" +
-                "       if (window.zauto_api_hijacked && window.zMessenger) return true;" +
-                "       if (window._zauto_webpack_pushed) return false;" +  
-                "       window._zauto_webpack_pushed = true;" +
-                "       try {" +
-                "           let chunks = window.webpackChunkzalo_web_app || window.webpackJsonp;" +
-                "           if (!chunks) return false;" +
-                "           let spyId = 'zauto_spy_core';" +  
-                "           let req = null;" +
-                "           chunks.push([[spyId], { [spyId]: function(m, e, r) { req = r; } }, [[spyId]]]);" +
-                "           if (!req || !req.m) return false;" +
-                "           for (let id in req.m) {" +
-                "               try {" +
-                "                   let mod = req(id);" +
-                "                   let exp = mod && (mod.default || mod);" +
-                "                   if (exp && typeof exp.sendMessage === 'function' && typeof exp.sendTextMessage === 'function') {" +
-                "                       window.zMessenger = exp;" +
-                "                       window.zauto_api_hijacked = true;" +
-                "                       console.log('ZAuto API Linked: ' + id);" +
-                "                       break;" +
-                "                   }" +
-                "               } catch(e) { continue; }" +
-                "           }" +
-                "       } catch(err) { console.log('Webpack error:', err); }" +
-                "       return window.zauto_api_hijacked;" +
-                "   };" +
-                "   window.zautoDiscoverMessengerApi();" +
+                "(function() { try {" +
 
-                "   var convId = '" + safeConvId + "';" +
-                "   var safeReply = '" + safeReply + "';" +
-                "   var safeSearchText = '" + safeSearchText + "';" +
-                "   var targetMsgId = '" + safeMsgId + "';" +
-                "   var targetTime = '" + safeTime + "';" +
+                // ─────────────────────────────────────────────────────────────
+                // BIẾN TOÀN CỤC TRONG CLOSURE
+                // ─────────────────────────────────────────────────────────────
+                "var _convId      = '" + safeConvId + "';" +
+                "var _reply       = '" + safeReply  + "';" +
+                "var _search      = '" + safeSearch + "';" +
+                "var _targetId    = '" + safeMsgId  + "';" +
+                "var _sentTime    = '" + safeTime   + "';" +
 
-                // BẢO LƯU HOÀN TOÀN CƠ CHẾ CHUYỂN NHÓM TRÊN GIAO DIỆN CŨ
-                // FIX: Xóa toàn bộ \"
-                "   function openGroup(callback) {" +
-                "       if (!convId || convId === '') { callback(true); return; }" +
-                "       var groupItem = document.querySelector('.msg-item[anim-data-id=' + convId + '] .conv-item') || document.querySelector('.msg-item[anim-data-id=' + convId + ']') || document.querySelector('[id*=' + convId + ']');" +
-                "       if (!groupItem) {" +
-                "           var allConvItems = document.querySelectorAll('.msg-item, .conv-item');" +
-                "           for (var i = 0; i < allConvItems.length; i++) {" +
-                "               var el = allConvItems[i];" +
-                "               var rKey = Object.keys(el).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-                "               if (rKey && el[rKey]) {" +
-                "                   var nodeVal = el[rKey];" +
-                "                   if (nodeVal) {" +
-                "                       var p = nodeVal.memoizedProps || nodeVal.pendingProps;" +
-                "                       if (p && ((p.session && String(p.session.id) === convId) || (p.convId && String(p.convId) === convId))) { groupItem = el; break; }" +
-                "                   }" +
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 0: KHÁM PHÁ WEBPACK API (GIỮ NGUYÊN TỪ BẢN CŨ)
+                // ─────────────────────────────────────────────────────────────
+                "function _discoverApi() {" +
+                "   if (window.zauto_api_hijacked && window.zMessenger && typeof window.zMessenger.sendMessage==='function') return true;" +
+                "   window.zauto_api_hijacked = false; window._zauto_webpack_pushed = false;" +
+                "   try {" +
+                "       var chunks = window.webpackChunkzalo_web_app || window.webpackJsonp;" +
+                "       if (!chunks) return false;" +
+                "       var spyId = '__zauto_spy_v5__'; var req = null;" +
+                "       chunks.push([[spyId], {[spyId]: function(m,e,r){req=r;}}, [[spyId]]]);" +
+                "       if (!req || !req.m) return false;" +
+                "       for (var id in req.m) {" +
+                "           try {" +
+                "               var mod = req(id); var exp = mod && (mod.default || mod);" +
+                "               if (exp && typeof exp.sendMessage==='function' && typeof exp.sendTextMessage==='function') {" +
+                "                   window.zMessenger = exp; window.zauto_api_hijacked = true; break;" +
                 "               }" +
+                "           } catch(ex) { continue; }" +
+                "       }" +
+                "   } catch(ex2) {}" +
+                "   return !!window.zauto_api_hijacked;" +
+                "}" +
+                // Chạy ngay lập tức
+                "_discoverApi();" +
+
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 1: MỞ ĐÚNG NHÓM (GIỮ NGUYÊN + TĂNG TIMEOUT 3500ms)
+                // ─────────────────────────────────────────────────────────────
+                "function _openGroup(cb) {" +
+                "   if (!_convId || _convId==='') { cb(true); return; }" +
+                "   var item = document.querySelector('.msg-item[anim-data-id='+_convId+'] .conv-item')" +
+                "           || document.querySelector('.msg-item[anim-data-id='+_convId+']')" +
+                "           || document.querySelector('[id*='+_convId+']');" +
+                "   if (!item) {" +
+                "       var all = document.querySelectorAll('.msg-item,.conv-item');" +
+                "       for (var i=0;i<all.length;i++) {" +
+                "           var rk=Object.keys(all[i]).find(k=>k.startsWith('__reactFiber')||k.startsWith('__reactProps'));" +
+                "           if (rk && all[i][rk]) {" +
+                "               var p=all[i][rk].memoizedProps||all[i][rk].pendingProps;" +
+                "               if (p&&((p.session&&String(p.session.id)===_convId)||(p.convId&&String(p.convId)===_convId))) {item=all[i];break;}" +
                 "           }" +
                 "       }" +
-                "       if (!groupItem) { callback(false); return; }" +
-                "       groupItem.scrollIntoView({block: 'center'}); groupItem.click();" +
-                "       var key = Object.keys(groupItem).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
-                "       if (key && groupItem[key]) {" +
-                "           var handler = groupItem[key].onClick || (groupItem[key].return && groupItem[key].return.memoizedProps && groupItem[key].return.memoizedProps.onClick);" +
-                "           if (handler) handler({preventDefault:()=>{}, stopPropagation:()=>{}});" +
-                "       }" +
-                "       setTimeout(() => callback(true), 3500);" +
                 "   }" +
+                "   if (!item) { cb(false); return; }" +
+                "   item.scrollIntoView({block:'center'}); item.click();" +
+                "   var rk=Object.keys(item).find(k=>k.startsWith('__reactEventHandlers')||k.startsWith('__reactFiber'));" +
+                "   if (rk&&item[rk]) {" +
+                "       var h=item[rk].onClick||(item[rk].return&&item[rk].return.memoizedProps&&item[rk].return.memoizedProps.onClick);" +
+                "       if (h) h({preventDefault:function(){},stopPropagation:function(){}});" +
+                "   }" +
+                "   setTimeout(function(){cb(true);}, 3500);" +
+                "}" +
 
-                // BẢO LƯU HOÀN TOÀN LOGIC PHÂN TÍCH VÀ ĐỊNH VỊ TIN NHẮN THEO HARDWARE ID VÀ VOICE
-                // FIX: Xóa toàn bộ \"
-                "   function findTargetMessage() {" +
-				"       var targetNode = null;" +
-				"       if (targetMsgId && !targetMsgId.startsWith('TIME_') && targetMsgId.length > 3) {" +
-				// THÊM MỚI: bb_msg_id_ và data-qid từ DOM thực tế ảnh 4+5
-				"           targetNode = document.querySelector('[id=\"bb_msg_id_' + targetMsgId + '\"]')" +
-				"                     || document.querySelector('[data-msg-id=\"' + targetMsgId + '\"]')" +
-				"                     || document.querySelector('div[id*=\"' + targetMsgId + '\"]');" +
-				// THÊM MỚI: tìm qua data-qid (format: convId@msgId_...)
-				"           if (!targetNode) {" +
-				"               var frames = document.querySelectorAll('[data-qid]');" +
-				"               for (var fi = 0; fi < frames.length; fi++) {" +
-				"                   var q = frames[fi].getAttribute('data-qid') || '';" +
-				"                   if (q.includes(targetMsgId)) { targetNode = frames[fi]; break; }" +
-				"               }" +
-				"           }" +
-				"       }" +
-				"       if (!targetNode) {" +
-				"           var isVoice = safeSearchText.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i') || safeSearchText.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]') || safeSearchText.toLowerCase().includes('ghi \\u00e2m') || safeSearchText.toLowerCase().includes('voice') || safeSearchText.toLowerCase().includes('audio');" +
-				"           var allItems = document.querySelectorAll('.chat-item, .message-item, [class*=message], [class*=chat-bubble], div[id^=msg_], div[id^=msg-]');" +
-				"           for (var i = allItems.length - 1; i >= 0; i--) {" +
-				"               var el = allItems[i];" +
-				"               var elHtml = el.innerHTML ? el.innerHTML.toLowerCase() : '';" +
-				"               if (isVoice) {" +
-				"                   if (elHtml.includes('audio') || elHtml.includes('ico-voice') || elHtml.includes('fa-playcircle') || elHtml.includes('v-audio')) { targetNode = el; break; }" +
-				"               } else if (safeSearchText.length > 2) {" +
-				"                   var elText = (el.innerText || el.textContent || '').trim();" +
-				"                   if (elText.includes(safeSearchText)) { targetNode = el; break; }" +
-				"               }" +
-				"           }" +
-				"       }" +
-				"       if (!targetNode) {" +
-				"           var allMsgs = document.querySelectorAll('.chat-item.flx, div[id^=msg_], div[id^=msg-], .chat-item, .message-item');" +
-				"           if (allMsgs.length > 0) targetNode = allMsgs[allMsgs.length - 1];" +
-				"       }" +
-				"       return targetNode;" +
-				"   }" +
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 2: TÌM NODE TIN NHẮN (GIỮ NGUYÊN TOÀN BỘ LOGIC CŨ)
+                // ─────────────────────────────────────────────────────────────
+                "function _findNode() {" +
+                "   var node = null;" +
+                // Ưu tiên 1: ID cứng từ DOM (bb_msg_id_, data-msg-id, data-qid)
+                "   if (_targetId && _targetId.length>3 && !_targetId.startsWith('TIME_') && !_targetId.startsWith('VIRTUAL_') && !_targetId.startsWith('CONTENT_') && !_targetId.startsWith('CACHE_')) {" +
+                "       node = document.querySelector('[id=\"bb_msg_id_'+_targetId+'\"]')" +
+                "           || document.querySelector('[data-msg-id=\"'+_targetId+'\"]')" +
+                "           || document.querySelector('div[id*=\"'+_targetId+'\"]');" +
+                "       if (!node) {" +
+                "           var frames=document.querySelectorAll('[data-qid]');" +
+                "           for (var fi=0;fi<frames.length;fi++) {" +
+                "               if ((frames[fi].getAttribute('data-qid')||'').includes(_targetId)){node=frames[fi];break;}" +
+                "           }" +
+                "       }" +
+                "   }" +
+                // Ưu tiên 2: Tìm theo nội dung text / voice keyword
+                "   if (!node) {" +
+                "       var isVoice = _search.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i')||_search.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]')||_search.toLowerCase().includes('voice')||_search.toLowerCase().includes('audio');" +
+                "       var all=document.querySelectorAll('.chat-item,.message-item,[class*=message],[class*=chat-bubble],div[id^=msg_],div[id^=msg-]');" +
+                "       for (var i=all.length-1;i>=0;i--) {" +
+                "           var el=all[i]; var html=(el.innerHTML||'').toLowerCase();" +
+                "           if (isVoice) {" +
+                "               if (html.includes('audio')||html.includes('ico-voice')||html.includes('fa-playcircle')||html.includes('v-audio')){node=el;break;}" +
+                "           } else if (_search.length>2) {" +
+                "               if ((el.innerText||el.textContent||'').includes(_search)){node=el;break;}" +
+                "           }" +
+                "       }" +
+                "   }" +
+                // Fallback: tin cuối cùng
+                "   if (!node) {" +
+                "       var last=document.querySelectorAll('.chat-item.flx,div[id^=msg_],div[id^=msg-],.chat-item,.message-item');" +
+                "       if (last.length>0) node=last[last.length-1];" +
+                "   }" +
+                "   return node;" +
+                "}" +
 
-                // =========================================================================
-                // 2. HÀM ĐIỀU PHỐI CHỐT CUỐC - NÂNG CẤP: FIBER ĐI NGƯỢC + TỌA ĐỘ VÙNG TRỐNG THÔNG MINH
-                // =========================================================================
-                "   function executeSend(targetNode) {" +
-
-                // --- LẤY METADATA ĐI NGƯỢC LÊN CHA (CHÍNH XÁC HƠN ĐI XUỐNG CON) ---
-                "       let realQuoteId = targetMsgId;" +
-                "       let msgReactObj = null;" +
-                "       if (targetNode) {" +
-                "           targetNode.scrollIntoView({block:'center', behavior:'smooth'});" +
-                // Cách 1: đi ngược lên 10 tầng cha qua fiber.return
-                "           try {" +
-                "               let fKey = Object.keys(targetNode).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-                "               if (fKey && targetNode[fKey]) {" +
-                "                   let fNode = targetNode[fKey];" +
-                "                   for (let i = 0; i < 10; i++) {" +
-                "                       if (!fNode) break;" +
-                "                       let p = fNode.memoizedProps || fNode.pendingProps;" +
-                "                       if (p) {" +
-                "                           let o = p.msg || p.message || p.data || p.item;" +
-                "                           if (o && typeof o === 'object' && (o.msgId || o.globalMsgId || o.cliMsgId)) {" +
-                "                               realQuoteId = String(o.msgId || o.globalMsgId || o.cliMsgId);" +
-                "                               msgReactObj = o;" +
-                "                               break;" +
-                "                           }" +
-                "                       }" +
-                "                       fNode = fNode.return;" +
-                "                   }" +
-                "               }" +
-                "           } catch(e) {}" +
-                // Cách 2 fallback: quét xuống các con
-                "           if (!msgReactObj) {" +
-                "               let allNodes = Array.from(targetNode.querySelectorAll('*'));" +
-                "               for (let n of allNodes) {" +
-                "                   let rk = Object.keys(n).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-                "                   if (rk && n[rk]) {" +
-                "                       let p = n[rk].memoizedProps || n[rk].pendingProps || {};" +
-                "                       let o = p.msg || p.message || p.data || p.item;" +
-                "                       if (o && typeof o === 'object') {" +
-                "                           let fid = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
-                "                           if (fid && String(fid).length > 4) {" +
-                "                               realQuoteId = String(fid); msgReactObj = o; break;" +
-                "                           }" +
-                "                       }" +
-                "                   }" +
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 3: TRÍCH XUẤT REACT OBJECT + REAL ID TỪ FIBER
+                // (GIỮ NGUYÊN TẦNG 0 + FIBER ĐI NGƯỢC 10 TẦNG + QUÉT CON)
+                // ─────────────────────────────────────────────────────────────
+                "function _extractObj(node) {" +
+                "   var res = {id: _targetId, obj: null};" +
+                "   if (!node) return res;" +
+                // Đi ngược 10 tầng fiber.return
+                "   var rk=Object.keys(node).find(k=>k.startsWith('__reactFiber')||k.startsWith('__reactProps'));" +
+                "   if (rk && node[rk]) {" +
+                "       var fn=node[rk]; var step=0;" +
+                "       while(fn && step<10) {" +
+                "           var p=fn.memoizedProps||fn.pendingProps;" +
+                "           if (p) {" +
+                "               var o=p.msg||p.message||p.data||p.item;" +
+                "               if (o&&typeof o==='object'&&(o.msgId||o.globalMsgId||o.cliMsgId)) {" +
+                "                   res.id=String(o.msgId||o.globalMsgId||o.cliMsgId); res.obj=o; return res;" +
                 "               }" +
                 "           }" +
-                "           if (realQuoteId && realQuoteId.length > 4) realQuoteId = realQuoteId.replace('msg-','').replace('msg_','');" +
+                "           fn=fn.return; step++;" +
                 "       }" +
-
-                // --- TẦNG 0: LẤY THẲNG TỪ REACT CONVERSATION STORE ---
-                "       if (!msgReactObj && targetMsgId && targetMsgId.length > 3 && !targetMsgId.startsWith('TIME_')) {" +
-                "           try {" +
-                "               let searchRoots = [document.getElementById('app'), document.querySelector('#main-app'), document.querySelector('[class*=chat-window]'), document.querySelector('[class*=conversation]')].filter(Boolean);" +
-                "               outer: for (let root of searchRoots) {" +
-                "                   let rk = Object.keys(root).find(k => k.startsWith('__reactFiber'));" +
-                "                   if (!rk) continue;" +
-                "                   let node = root[rk]; let depth = 0;" +
-                "                   while (node && depth < 80) {" +
-                "                       let ms = node.memoizedState;" +
-                "                       if (ms) {" +
-                "                           let arr = ms.memoizedState || ms.queue;" +
-                "                           if (Array.isArray(arr)) {" +
-                "                               for (let m of arr) {" +
-                "                                   if (m && typeof m === 'object') {" +
-                "                                       let fid = String(m.msgId || m.globalMsgId || m.cliMsgId || '');" +
-                "                                       if (fid === targetMsgId || fid === realQuoteId) {" +
-                "                                           msgReactObj = m; realQuoteId = fid; break outer;" +
-                "                                       }" +
-                "                                   }" +
-                "                               }" +
-                "                           }" +
-                "                       }" +
-                "                       node = node.child || node.sibling || (node.return ? node.return.sibling : null);" +
-                "                       depth++;" +
-                "                   }" +
+                "   }" +
+                // Quét xuống các con
+                "   var ch=node.querySelectorAll('*');" +
+                "   for (var i=0;i<ch.length;i++) {" +
+                "       var ck=Object.keys(ch[i]).find(k=>k.startsWith('__reactFiber')||k.startsWith('__reactProps'));" +
+                "       if (ck&&ch[i][ck]) {" +
+                "           var cp=ch[i][ck].memoizedProps||ch[i][ck].pendingProps||{};" +
+                "           var co=cp.msg||cp.message||cp.data||cp.item;" +
+                "           if (co&&typeof co==='object') {" +
+                "               var cid=String(co.msgId||co.globalMsgId||co.cliMsgId||'');" +
+                "               if (cid&&cid.length>4){res.id=cid;res.obj=co;return res;}" +
+                "           }" +
+                "       }" +
+                "   }" +
+                // Tầng 0: React Conversation Store (giữ nguyên từ bản cũ)
+                "   if (_targetId&&_targetId.length>3&&!_targetId.startsWith('TIME_')) {" +
+                "       try {" +
+                "           var roots=[document.getElementById('app'),document.querySelector('#main-app'),document.querySelector('[class*=chat-window]'),document.querySelector('[class*=conversation]')].filter(Boolean);" +
+                "           outer: for (var ri=0;ri<roots.length;ri++) {" +
+                "               var rrk=Object.keys(roots[ri]).find(k=>k.startsWith('__reactFiber'));" +
+                "               if (!rrk) continue;" +
+                "               var nd=roots[ri][rrk]; var depth=0;" +
+                "               while(nd&&depth<80){" +
+                "                   var ms=nd.memoizedState;" +
+                "                   if (ms){var arr=ms.memoizedState||ms.queue; if(Array.isArray(arr)){for(var mi=0;mi<arr.length;mi++){var mm=arr[mi]; if(mm&&typeof mm==='object'){var fid=String(mm.msgId||mm.globalMsgId||mm.cliMsgId||''); if(fid===_targetId||fid===res.id){res.id=fid;res.obj=mm;break outer;}}}}}" +
+                "                   nd=nd.child||nd.sibling||(nd.return?nd.return.sibling:null); depth++;" +
                 "               }" +
-                "           } catch(e) { console.log('Tang0 err:', e); }" +
+                "           }" +
+                "       } catch(e) {}" +
+                "   }" +
+                "   if (res.id&&res.id.length>4) res.id=res.id.replace('msg-','').replace('msg_','');" +
+                "   return res;" +
+                "}" +
+
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 4: ĐIỀN TEXT + GỬI (GIỮ NGUYÊN SELECTOR ĐẦY ĐỦ)
+                // ─────────────────────────────────────────────────────────────
+                "function _typeAndSend() {" +
+                "   var input = document.querySelector('#chat-input-content')" +
+                "            || document.querySelector('#richInput')" +
+                "            || document.querySelector('[contenteditable=true][class*=chat-input]')" +
+                "            || document.querySelector('[contenteditable=true][data-lexical-editor]')" +
+                "            || document.querySelector('[contenteditable=true][role=textbox]')" +
+                "            || document.querySelector('[contenteditable=true]')" +
+                "            || document.querySelector('.chat-input');" +
+                "   if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); return; }" +
+                "   input.setAttribute('readonly','true');" +
+                "   input.focus();" +
+                "   input.removeAttribute('readonly');" +
+                "   input.innerHTML = '';" +
+                // 3 cách điền text — dùng cả 3 để đảm bảo React nhận được
+                "   try { document.execCommand('insertText',false,_reply); } catch(ex) {}" +
+                "   if (!input.textContent.trim()) { input.innerHTML = _reply; }" +
+                "   input.dispatchEvent(new Event('input',{bubbles:true}));" +
+                "   input.dispatchEvent(new Event('change',{bubbles:true}));" +
+                "   setTimeout(function() {" +
+                "       var iSend = document.querySelector('i.fa.fa-Sent-msg_24_Line')" +
+                "                || document.querySelector('.fa-Sent-msg_24_Line')" +
+                "                || document.querySelector('[class*=Sent-msg_24_Line]');" +
+                "       var btnSend = iSend ? (iSend.closest('.z--btn--v2')||iSend.closest('button')||iSend.parentNode) : null;" +
+                "       if (!btnSend) btnSend = document.querySelector('#chat-input-container-id .send-msg-btn')" +
+                "                           || document.querySelector('[data-translate-title=STR_SEND]');" +
+                "       if (btnSend) {" +
+                "           btnSend.click();" +
+                "           btnSend.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));" +
+                "       }" +
+                "       input.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
+                "       input.dispatchEvent(new KeyboardEvent('keypress',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
+                "       input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
+                "       setTimeout(function(){" +
+                "           var chk=document.querySelector('#chat-input-content,#richInput,[contenteditable=true]');" +
+                "           var ok=!chk||chk.innerHTML===''||chk.innerHTML==='<br>'||chk.textContent.trim()==='';" +
+                "           ZAutoBridge.onLoginSuccess(ok?'Chốt DOM UI QUOTE OK':'TRIGGER_VISION_FALLBACK','');" +
+                "       },500);" +
+                "   },400);" +
+                "}" +
+
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 5: KIỂM TRA QUOTE BANNER HIỆN RA
+                // ─────────────────────────────────────────────────────────────
+                "function _waitBanner(cb, maxMs) {" +
+                "   var t0=Date.now();" +
+                "   var iv=setInterval(function(){" +
+                "       var b=document.querySelector('.chat-box-input__heading .quote-banner')" +
+                "           ||document.querySelector('.rel.quote-banner')" +
+                "           ||document.querySelector('[class*=quote-banner]')" +
+                "           ||document.querySelector('[class*=reply-banner]')" +
+                "           ||document.querySelector('[class*=ReplyBanner]')" +
+                "           ||document.querySelector('[class*=quote-msg]')" +
+                "           ||document.querySelector('[class*=QuoteMsg]');" +
+                "       if (b||Date.now()-t0>maxMs){clearInterval(iv);cb(!!b);}" +
+                "   },80);" +
+                "}" +
+
+                // ─────────────────────────────────────────────────────────────
+                // BƯỚC 6: SUPER DOUBLE CLICK — 4 CHIẾN LƯỢC SONG SONG
+                // BIẾT CHẮC: tin người gửi cuốc LUÔN NẰM TRÁI (bubble trái)
+                // Tin mình gửi nằm phải — không cần quote
+                // ─────────────────────────────────────────────────────────────
+                "function _superDblClick(node, doneCb) {" +
+                "   if (!node) { doneCb(false); return; }" +
+                // Scroll đến tin, đợi render xong rồi mới đo tọa độ
+                "   node.scrollIntoView({block:'center', behavior:'instant'});" +
+                "   setTimeout(function() {" +
+
+                // Tìm bong bóng chính xác nhất
+                "       var bubble = node.querySelector('.card--text,.card-content,[class*=bubble],[class*=chat-item__content],.message-chat-inner,[class*=msg-content]') || node;" +
+                "       var rect = bubble.getBoundingClientRect();" +
+                "       var vw = window.innerWidth||document.documentElement.clientWidth;" +
+                "       var vh = window.innerHeight||document.documentElement.clientHeight;" +
+
+                // Nếu bubble chưa vào viewport — scroll thêm lần nữa
+                "       if (rect.top < 0 || rect.bottom > vh || rect.height === 0) {" +
+                "           node.scrollIntoView({block:'center', behavior:'smooth'});" +
+                "           rect = bubble.getBoundingClientRect();" +
                 "       }" +
 
-                // --- TẦNG 1: API CORE (nhanh nhất, không cần click đúp) ---
-                "       let apiAlive = false;" +
-                "       try { apiAlive = window.zMessenger && typeof window.zMessenger.sendMessage === 'function'; } catch(e) {}" +
-                "       if (!apiAlive) {" +
-                "           window.zauto_api_hijacked = false; window._zauto_webpack_pushed = false;" +
-                "           if (typeof window.zautoDiscoverMessengerApi === 'function') window.zautoDiscoverMessengerApi();" +
+                // Tọa độ TÂM bubble — đúng với mọi kích thước, mọi loại tin
+                "       var cx = Math.max(10, Math.min(rect.left + rect.width/2,  vw-10));" +
+                "       var cy = Math.max(10, Math.min(rect.top  + rect.height/2, vh-10));" +
+
+                "       var wrapper = node.closest('.chat-message,.message-container,[class*=message-row],[class*=chat-item],[class*=MessageItem]') || node;" +
+                "       var triggered = false;" +
+
+                // ── CHIẾN LƯỢC A: Chọc thẳng React onDoubleClick handler ──────
+                // Không cần tọa độ — mạnh nhất, không phụ thuộc layout
+                "       var probes = [bubble, node, wrapper];" +
+                "       try { var extra=node.querySelectorAll('[class*=chat-message],[class*=message-row],[class*=MessageItem]'); for(var pi=0;pi<Math.min(extra.length,5);pi++) probes.push(extra[pi]); } catch(ex) {}" +
+                "       for (var i=0;i<probes.length;i++) {" +
+                "           if (!probes[i]) continue;" +
+                "           var rk=Object.keys(probes[i]).find(k=>k.startsWith('__reactEventHandlers')||k.startsWith('__reactFiber'));" +
+                "           if (rk&&probes[i][rk]) {" +
+                "               var fib=probes[i][rk];" +
+                // Tìm handler onDoubleClick qua nhiều đường fiber
+                "               var dbl = fib.onDoubleClick" +
+                "                       ||(fib.memoizedProps&&fib.memoizedProps.onDoubleClick)" +
+                "                       ||(fib.pendingProps&&fib.pendingProps.onDoubleClick)" +
+                "                       ||(fib.return&&fib.return.memoizedProps&&fib.return.memoizedProps.onDoubleClick)" +
+                "                       ||(fib.return&&fib.return.return&&fib.return.return.memoizedProps&&fib.return.return.memoizedProps.onDoubleClick);" +
+                "               if (typeof dbl==='function') {" +
+                "                   try {" +
+                "                       dbl({preventDefault:function(){},stopPropagation:function(){},bubbles:true,clientX:cx,clientY:cy,nativeEvent:{clientX:cx,clientY:cy}});" +
+                "                       triggered=true; break;" +
+                "                   } catch(ex2) {}" +
+                "               }" +
+                "           }" +
                 "       }" +
-                "       if (window.zMessenger && typeof window.zMessenger.sendMessage === 'function') {" +
-                "           try {" +
-                "               let reqObj = { toid: convId, msg: safeReply, type: 1 };" +
-                "               if (realQuoteId && !realQuoteId.startsWith('TIME_') && msgReactObj) {" +
-                "                   reqObj.quote = {" +
-                "                       globalMsgId: realQuoteId," +
-                "                       ownerId: msgReactObj.ownerId || msgReactObj.senderId || msgReactObj.uid || ''," +
-                "                       dName: msgReactObj.dName || msgReactObj.senderName || msgReactObj.fromName || ''," +
-                "                       msg: msgReactObj.content || msgReactObj.msg || msgReactObj.text || safeSearchText," +
-                "                       type: msgReactObj.msgType || msgReactObj.type || 1" +
+
+                // ── CHIẾN LƯỢC B: Chuỗi Mouse Events đầy đủ vào TÂM bubble ──
+                // mousedown×2 → mouseup×2 → click(detail:1) → click(detail:2) → dblclick
+                // Mô phỏng chính xác hành vi người dùng thật trên Chromium
+                "       var fireMouseSeq = function(el) {" +
+                "           el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy}));" +
+                "           el.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy}));" +
+                "           el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:1,detail:1}));" +
+                "           el.dispatchEvent(new MouseEvent('mouseup',  {bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:0,detail:1}));" +
+                "           el.dispatchEvent(new MouseEvent('click',    {bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:0,detail:1}));" +
+                "           setTimeout(function(){" +
+                "               el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:1,detail:2}));" +
+                "               el.dispatchEvent(new MouseEvent('mouseup',  {bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:0,detail:2}));" +
+                "               el.dispatchEvent(new MouseEvent('click',    {bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:0,detail:2}));" +
+                "               el.dispatchEvent(new MouseEvent('dblclick', {bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:0,detail:2}));" +
+                "           }, 60);" +
+                "       };" +
+                // Bắn vào cả bubble lẫn wrapper để đảm bảo React event bubbling
+                "       fireMouseSeq(bubble);" +
+                "       setTimeout(function(){ fireMouseSeq(wrapper); }, 30);" +
+
+                // ── CHIẾN LƯỢC C: Touch Events đôi (Android WebView native) ──
+                // Android đôi khi ưu tiên touch events hơn mouse events
+                "       try {" +
+                "           var mkTouch=function(id,el){try{return new Touch({identifier:id,target:el,clientX:cx,clientY:cy,radiusX:5,radiusY:5,rotationAngle:0,force:1});}catch(e){return null;}};" +
+                "           var t1=mkTouch(101,bubble);" +
+                "           if (t1) {" +
+                "               bubble.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[t1],targetTouches:[t1],changedTouches:[t1]}));" +
+                "               bubble.dispatchEvent(new TouchEvent('touchend',  {bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t1]}));" +
+                "               setTimeout(function(){" +
+                "                   var t2=mkTouch(102,bubble);" +
+                "                   if (!t2) return;" +
+                "                   bubble.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[t2],targetTouches:[t2],changedTouches:[t2]}));" +
+                "                   bubble.dispatchEvent(new TouchEvent('touchend',  {bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[t2]}));" +
+                "               }, 80);" +
+                "           }" +
+                "       } catch(tex) {}" +
+
+                // ── CHIẾN LƯỢC D: Pointer Events chuẩn W3C (Chrome 86+) ──────
+                "       try {" +
+                "           bubble.dispatchEvent(new PointerEvent('pointerover', {bubbles:true,clientX:cx,clientY:cy,pointerId:1,isPrimary:true,pointerType:'mouse'}));" +
+                "           bubble.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true,clientX:cx,clientY:cy,pointerId:1,isPrimary:true,pointerType:'mouse',pressure:0.5}));" +
+                "           bubble.dispatchEvent(new PointerEvent('pointerup',   {bubbles:true,clientX:cx,clientY:cy,pointerId:1,isPrimary:true,pointerType:'mouse'}));" +
+                "           setTimeout(function(){" +
+                "               bubble.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:cx,clientY:cy,pointerId:1,isPrimary:true,pointerType:'mouse',pressure:0.5}));" +
+                "               bubble.dispatchEvent(new PointerEvent('pointerup',  {bubbles:true,clientX:cx,clientY:cy,pointerId:1,isPrimary:true,pointerType:'mouse'}));" +
+                "               bubble.dispatchEvent(new PointerEvent('click',      {bubbles:true,clientX:cx,clientY:cy,pointerId:1,isPrimary:true,pointerType:'mouse',detail:2}));" +
+                "           }, 80);" +
+                "       } catch(pex) {}" +
+
+                // Sau tất cả chiến lược — gọi callback
+                "       doneCb(triggered);" +
+                "   }, 300);" +   // đợi scroll render
+                "}" +
+
+                // ─────────────────────────────────────────────────────────────
+                // LUỒNG CHẠY CHÍNH
+                // ─────────────────────────────────────────────────────────────
+                "_openGroup(function(opened) {" +
+                "   var node    = _findNode();" +
+                "   var ext     = _extractObj(node);" +
+                "   var realId  = ext.id;" +
+                "   var reactObj= ext.obj;" +
+
+                // ── TẦNG 1: API WEBPACK (nhanh nhất, quote chính xác nhất) ──
+                "   if (!_discoverApi()) { _discoverApi(); }" +
+                "   if (window.zMessenger && typeof window.zMessenger.sendMessage==='function') {" +
+                "       try {" +
+                "           var req = {toid:_convId, msg:_reply, type:1};" +
+                "           var validId = realId && realId.length>4 && !realId.startsWith('TIME_') && !realId.startsWith('VIRTUAL_') && !realId.startsWith('CONTENT_') && !realId.startsWith('CACHE_');" +
+                "           if (validId) {" +
+                "               if (reactObj) {" +
+                "                   req.quote = {" +
+                "                       globalMsgId: realId," +
+                "                       ownerId: reactObj.ownerId||reactObj.senderId||reactObj.uid||''," +
+                "                       dName:   reactObj.dName||reactObj.senderName||reactObj.fromName||''," +
+                "                       msg:     reactObj.content||reactObj.msg||reactObj.text||_search," +
+                "                       type:    reactObj.msgType||reactObj.type||1" +
                 "                   };" +
-                "               } else if (realQuoteId && !realQuoteId.startsWith('TIME_')) {" +
-                "                   reqObj.quote = { globalMsgId: realQuoteId, msg: safeSearchText, type: 1 };" +
-                "               }" +
-                "               window.zMessenger.sendMessage(reqObj);" +
-                "               ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK', '');" +
-                "               return;" +
-                "           } catch(apiErr) { console.log('API lỗi, chuyển Tầng 2'); }" +
-                "       }" +
-
-                // --- TẦNG 2: DOM UI - CLICK ĐÚP THÔNG MINH THEO VỊ TRÍ TIN NHẮN NHÓM/2 NGƯỜI ---
-                "       try {" +
-                "           if (targetNode) {" +
-                "               let bubble = targetNode.querySelector('.card--text, .card-content, div[class*=bubble], .message-chat-inner, [class*=chat-item__content]') || targetNode;" +
-                "               let quoteSuccess = false;" +
-
-                // Ưu tiên 1: Chọc thẳng vào React fiber handler (không cần tọa độ chuột)
-                "               let nodesToTry = [bubble, targetNode, targetNode.querySelector('.chat-message')].filter(Boolean);" +
-                "               for (let n of nodesToTry) {" +
-                "                   let rk = Object.keys(n).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
-                "                   if (rk && n[rk]) {" +
-                "                       let dbl = n[rk].onDoubleClick || (n[rk].return && n[rk].return.memoizedProps && n[rk].return.memoizedProps.onDoubleClick);" +
-                "                       if (dbl) { dbl({preventDefault:()=>{}, stopPropagation:()=>{}, bubbles:true}); quoteSuccess = true; break; }" +
-                "                   }" +
-                "               }" +
-
-                // Ưu tiên 2: MouseEvent tọa độ thông minh
-                "               if (!quoteSuccess) {" +
-                "                   let rect = bubble.getBoundingClientRect();" +
-                "                   if (rect.width > 0 && rect.height > 0) {" +
-                "                       let screenW = window.innerWidth || document.documentElement.clientWidth;" +
-                "                       let cy = rect.top + (rect.height / 2);" +
-                "                       let cx;" +
-                "                       if (rect.left < screenW / 2) {" +
-                "                           cx = Math.min(rect.right + 30, screenW - 15);" +
-                "                       } else {" +
-                "                           cx = Math.max(rect.left - 30, 15);" +
-                "                       }" +
-                "                       let wrapper = targetNode.closest('.chat-message, .message-container, [class*=message-row]') || targetNode;" +
-                "                       wrapper.dispatchEvent(new MouseEvent('dblclick', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy, buttons:1}));" +
-                "                   }" +
+                "               } else {" +
+                "                   req.quote = {globalMsgId:realId, msg:_search, type:1};" +
                 "               }" +
                 "           }" +
-
-                // Đợi Zalo bật thanh "Đang trả lời" rồi gõ và gửi
-                "           setTimeout(() => {" +
-				// Tìm ô nhập đúng theo DOM thực tế ảnh 5
-				"               var input = document.querySelector('#chat-input-content')" +
-				"                        || document.querySelector('#richInput')" +
-				"                        || document.querySelector('[contenteditable=true][class*=chat-input]')" +
-				"                        || document.querySelector('[contenteditable=true]')" +
-				"                        || document.querySelector('.chat-input');" +
-				"               if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId); return; }" +
-				// Kiểm tra thanh quote-banner có hiện không (xác nhận click đúp thành công)
-				"               var quoteBanner = document.querySelector('.chat-box-input__heading .quote-banner')" +
-				"                              || document.querySelector('.rel.quote-banner')" +
-				"                              || document.querySelector('[class*=quote-banner]');" +
-				"               console.log('ZAuto: Quote banner = ' + (quoteBanner ? 'CO' : 'KHONG'));" +
-				// Điền nội dung vào ô chat
-				"               input.setAttribute('readonly','true');" +
-				"               input.focus();" +
-				"               input.removeAttribute('readonly');" +
-				"               input.innerHTML = safeReply;" +
-				"               input.dispatchEvent(new Event('input', {bubbles:true}));" +
-				"               input.dispatchEvent(new Event('change', {bubbles:true}));" +
-				"               setTimeout(() => {" +
-				// Tìm nút gửi theo DOM thực tế: i.fa.fa-Sent-msg_24_Line nằm trong z--btn--v2
-				"                   var iSend = document.querySelector('i.fa.fa-Sent-msg_24_Line')" +
-				"                            || document.querySelector('.fa-Sent-msg_24_Line')" +
-				"                            || document.querySelector('[class*=Sent-msg_24_Line]');" +
-				"                   var btnSend = iSend ? (iSend.closest('.z--btn--v2') || iSend.closest('button') || iSend.parentNode) : null;" +
-				"                   if (!btnSend) btnSend = document.querySelector('#chat-input-container-id .send-msg-btn')" +
-				"                                        || document.querySelector('[data-translate-title=STR_SEND]');" +
-				// Cách 1: Click nút gửi DOM
-				"                   if (btnSend) {" +
-				"                       btnSend.click();" +
-				"                       btnSend.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));" +
-				"                   }" +
-				// Cách 2: Phòng thủ bằng Enter nếu nút không hoạt động
-				"                   input.dispatchEvent(new KeyboardEvent('keydown', {bubbles:true, cancelable:true, keyCode:13, key:'Enter', which:13}));" +
-				"                   input.dispatchEvent(new KeyboardEvent('keypress', {bubbles:true, cancelable:true, keyCode:13, key:'Enter', which:13}));" +
-				"                   input.dispatchEvent(new KeyboardEvent('keyup', {bubbles:true, cancelable:true, keyCode:13, key:'Enter', which:13}));" +
-				"                   setTimeout(() => {" +
-				"                       var chk = document.querySelector('#chat-input-content')" +
-				"                              || document.querySelector('#richInput')" +
-				"                              || document.querySelector('[contenteditable=true]');" +
-				"                       var sent = !chk || chk.innerHTML==='' || chk.innerHTML==='<br>' || chk.textContent.trim()==='';" +
-				"                       ZAutoBridge.onLoginSuccess(sent ? 'Chốt DOM UI QUOTE OK' : 'TRIGGER_VISION_FALLBACK', sent ? '' : realQuoteId);" +
-				"                   }, 500);" +
-				"               }, 400);" +
-				"           }, 700);" +
-                "       } catch(domErr) {" +
-                "           ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK', realQuoteId);" +
-                "       }" +
+                "           window.zMessenger.sendMessage(req);" +
+                "           ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK','');" +
+                "           return;" +
+                "       } catch(apiErr) { console.log('API fail->DOM:', String(apiErr)); }" +
                 "   }" +
 
-                // LUỒNG KHỞI CHẠY CHÍNH
-                "   openGroup(function(opened) {" +
-                "       var targetNode = findTargetMessage();" +
-                "       executeSend(targetNode);" +
-                "   });" +
+                // ── TẦNG 2: SUPER DOUBLE CLICK + BANNER CHECK + GỬI ─────────
+                "   try {" +
+                "       _superDblClick(node, function(reactHandled) {" +
+                // Đợi banner hiện — tối đa 1800ms
+                "           _waitBanner(function(bannerOk) {" +
+                "               console.log('ZAuto: banner='+bannerOk+' reactHandler='+reactHandled);" +
+                "               _typeAndSend();" +
+                "           }, 1800);" +
+                "       });" +
+                "   } catch(domErr) {" +
+                "       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK','');" +
+                "   }" +
+                "});" +
 
-                "} catch(e) { console.log('ZAuto Reply Error:', e); }" +
+                "} catch(e) { console.log('ZAuto fatal:',String(e)); ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); }" +
                 "})();";
 
                 hiddenWebView.evaluateJavascript(jsCode, null);
