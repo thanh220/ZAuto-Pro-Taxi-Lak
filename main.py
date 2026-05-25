@@ -868,7 +868,7 @@ class ZAutoHybridVisionEngine:
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 2.6  
+    APP_VERSION = 2.9  
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -1216,7 +1216,9 @@ class ZAutoProApp(MDApp):
                 logger.error(f"Reply Worker Crash: {traceback.format_exc()}")
                 time.sleep(1)
     def _audio_worker_loop(self):
-        """Worker lấy tin nhắn thoại ra phát - Sử dụng Set riêng biệt chống lặp, không nghẽn tin"""
+        """Worker tuần tự: Đọc TTS thông báo nhóm → Play tin thoại → Chờ → Tin tiếp theo.
+        Mỗi tin chỉ phát 1 lần. Nhiều nhóm/nhiều tin xếp hàng lần lượt không chèn nhau.
+        """
         if not hasattr(self, 'audio_seen_set'):
             self.audio_seen_set = set()
         if not hasattr(self, 'last_audio_clean_time'):
@@ -1224,41 +1226,57 @@ class ZAutoProApp(MDApp):
 
         while getattr(self, 'app_running', True):
             try:
-                # Tự động dọn dẹp bộ nhớ Set sau mỗi 1 tiếng để tránh phình dung lượng RAM
                 if time.time() - self.last_audio_clean_time > 3600:
                     self.audio_seen_set.clear()
                     self.last_audio_clean_time = time.time()
 
-                conv_id, msg_id, cache_key, duration = self.audio_queue.get(timeout=1.0)
-                
-                # Tạo một khóa định danh duy nhất cho tin thoại dựa trên mã hội thoại và mã tin nhắn
-                # Nếu msg_id là TIME_ thì thêm timestamp thực vào key để không bị chặn nhau
+                # Nhận đủ 5 tham số; tương thích ngược với tuple 4 phần tử cũ
+                item = self.audio_queue.get(timeout=1.0)
+                if len(item) == 5:
+                    conv_id, msg_id, cache_key, duration, tts_text = item
+                else:
+                    conv_id, msg_id, cache_key, duration = item
+                    tts_text = ""
+
+                # Tạo khóa duy nhất chống phát lại
                 if msg_id.startswith("TIME_") or not msg_id or len(msg_id) < 4:
                     audio_unique_key = f"{conv_id}_{msg_id}_dur{duration}"
                 else:
                     audio_unique_key = f"{conv_id}_{msg_id}"
+
                 if audio_unique_key in self.audio_seen_set:
                     self.audio_queue.task_done()
-                    continue
+                    continue  # Đã phát rồi, bỏ qua
+
+                # Đánh dấu ngay trước khi phát để tránh race condition
+                self.audio_seen_set.add(audio_unique_key)
 
                 if platform == 'android' and getattr(self, 'is_linked', False):
-                    # Thêm vào danh sách đã phát thành công
-                    self.audio_seen_set.add(audio_unique_key)
-
                     from jnius import autoclass
                     PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                    # Phải gọi đủ 3 tham số (Activity, conv_id, msg_id)
-                    autoclass('org.zauto.ZaloWebManager').playSpecificAudio(PythonActivity.mActivity, conv_id, msg_id)
-                    logger.info(f"AudioWorker: Khích hoạt phát tin thoại {audio_unique_key} (Thời lượng: {duration}s)")
-                    
-                    # Kế thừa logic chờ thời gian thực của bạn
-                    if int(duration) > 0:
-                        sleep_time = int(duration) + 2.0
-                    else:
-                        sleep_time = 7.0
-                    time.sleep(sleep_time)
-                
+                    ZWM = autoclass('org.zauto.ZaloWebManager')
+
+                    # BƯỚC 1: Đọc TTS thông báo nhóm trước (đợi xong mới play)
+                    if tts_text:
+                        try:
+                            ZWM.speak(tts_text)
+                            time.sleep(3.0)  # Chờ TTS đọc xong ~3s
+                        except Exception as e_tts:
+                            logger.error(f"TTS speak lỗi: {e_tts}")
+
+                    # BƯỚC 2: Kích nút Play tin thoại trong WebView
+                    ZWM.playSpecificAudio(PythonActivity.mActivity, conv_id, msg_id)
+                    logger.info(f"AudioWorker: Play {audio_unique_key} (duration={duration}s)")
+
+                    # BƯỚC 3: Chờ đúng thời lượng tin thoại trước khi phát tin tiếp
+                    try:
+                        wait_time = max(int(duration) + 2.0, 7.0) if int(duration) > 0 else 7.0
+                    except:
+                        wait_time = 7.0
+                    time.sleep(wait_time)
+
                 self.audio_queue.task_done()
+
             except queue.Empty:
                 continue
             except Exception as e:
@@ -1325,36 +1343,35 @@ class ZAutoProApp(MDApp):
         cache_key = f"CACHE_{conversation_id}_{msg_hash}"
 
         if is_voice:
-            # --- 🔊 LUỒNG VOICE ---
             duration = -1 
             if "%%%" in msg:
                 try: duration = int(msg.split("%%%")[1])
                 except: pass
-
             display_msg = "🔊 CÓ BẢN GHI ÂM MỚI"
+
+            # Tạo nội dung TTS thông báo để đưa vào audio_queue — phát tuần tự
+            sender_name = msg_clean.split(": ")[0].strip() if ": " in msg_clean else ""
+            clean_group = re.sub(r'[^\w\s]', '', group)
+            clean_sender = re.sub(r'[^\w\s]', '', sender_name) if sender_name else ""
+            tts_text = ""
+            if self.config_data.get('sw_voice', True):
+                tts_text = f"Có tin nhắn thoại của {clean_sender}, từ nhóm {clean_group}" if clean_sender else f"Có tin nhắn thoại từ nhóm {clean_group}"
 
             if platform == 'android':
                 try:
-                    # Gửi xuống worker để kích hàm Play
-                    self.audio_queue.put((conversation_id, msg_id, cache_key, duration), timeout=0.5)
-                except queue.Full: logger.warning(f"Audio queue đầy, bỏ qua tin thoại nhóm {group}")
-            
-            # Nổ UI Canh Me
+                    # Đưa cả TTS + lệnh play vào cùng 1 queue để xử lý tuần tự
+                    self.audio_queue.put(
+                        (conversation_id, msg_id, cache_key, duration, tts_text),
+                        timeout=0.5
+                    )
+                except queue.Full:
+                    logger.warning(f"Audio queue đầy, bỏ qua tin thoại nhóm {group}")
             try:
                 self.ui_queue.put_nowait(('add_ride', (group, display_msg, msg_id, conversation_id, cache_key, msg)))
                 self.ui_queue.put_nowait(('log', (group, display_msg)))
-                
-                if self.config_data.get('sw_voice', True):
-                    clean_group = re.sub(r'[^\w\s]', '', group)
-                    sender_name = msg_clean.split(": ")[0].strip() if ": " in msg_clean else ""
-                    if sender_name:
-                        clean_sender = re.sub(r'[^\w\s]', '', sender_name)
-                        self.ui_queue.put_nowait(('speak', f"Có tin nhắn thoại của {clean_sender}, từ nhóm {clean_group}"))
-                    else:
-                        self.ui_queue.put_nowait(('speak', f"Có tin nhắn thoại từ nhóm {clean_group}"))
+                # KHÔNG dùng ('speak',...) ở đây nữa — TTS đã đưa vào audio_queue phát tuần tự
             except queue.Full: pass
-            
-            return # NGẮT HÀM - Không Auto Chốt đối với Voice
+            return
 
         else:
             # --- 💬 LUỒNG TEXT ---
@@ -1595,8 +1612,16 @@ class ZAutoProApp(MDApp):
         replies = [r.strip() for r in raw_reply.split(',') if r.strip()]
         final_reply = random.choice(replies) if replies else "Ok nhận"
 
+        # KHÔNG switch_tab — JS chạy âm thầm trong WebView ngầm
         # force_manual=True: bấm tay không bị chặn bởi đồng hồ delay 30s
-        self.queue_reply(card_widget.group_text, getattr(card_widget, 'conversation_id', ''), getattr(card_widget, 'msg_id', ''), final_reply, getattr(card_widget, 'raw_msg', card_widget.msg_text), force_manual=True)
+        self.queue_reply(
+            card_widget.group_text,
+            getattr(card_widget, 'conversation_id', ''),
+            getattr(card_widget, 'msg_id', ''),
+            final_reply,
+            getattr(card_widget, 'raw_msg', card_widget.msg_text),
+            force_manual=True
+        )
         toast(f"Đang chốt: {card_widget.group_text}")
         self.remove_ride(card_widget)
 
@@ -1648,10 +1673,10 @@ class ZAutoProApp(MDApp):
 
     @run_on_ui_thread
     def _execute_reply_safe(self, payload):
-        """HÀM GỌI XUỐNG JAVA PHẢI CHẠY TRÊN UI THREAD CỦA ANDROID"""
+        """HÀM GỌI XUỐNG JAVA — CHẠY ÂM THẦM, KHÔNG NHẢY TAB, KHÔNG LÀM PHIỀN NGƯỜI DÙNG"""
         try:
-            # ẨN BÀN PHÍM TRƯỚC KHI CHỐT - gọi thẳng method Java mới
             if platform == 'android':
+                # BƯỚC 1: Ẩn bàn phím (an toàn, không ảnh hưởng UI)
                 try:
                     from jnius import autoclass as _ac
                     _act = _ac('org.kivy.android.PythonActivity').mActivity
@@ -1662,15 +1687,23 @@ class ZAutoProApp(MDApp):
                 from jnius import autoclass
                 PythonActivity = autoclass('org.kivy.android.PythonActivity')
                 current_time_str = time.strftime('%H:%M')
-                autoclass('org.zauto.ZaloWebManager').sendReplyToSpecificMessage(
-                    PythonActivity.mActivity,
-                    payload.get('conversation_id', ''),
-                    payload.get('msg_id', ''),
-                    payload.get('reply_text', ''),
-                    payload.get('msg_content', ''),
-                    current_time_str
-                )
-                logger.info("Đã gửi lệnh chốt Zalo (Gửi đủ 6 tham số Click đúp)")
+
+                # BƯỚC 2: Gọi JS âm thầm — WebView luôn chạy ngầm dù tab nào đang hiện
+                # KHÔNG cần switch_tab vì hiddenWebView vẫn sống và JS evaluateJavascript
+                # hoạt động bình thường kể cả khi WebView đang ở leftMargin=-2000 (ẩn)
+                try:
+                    autoclass('org.zauto.ZaloWebManager').sendReplyToSpecificMessage(
+                        PythonActivity.mActivity,
+                        payload.get('conversation_id', ''),
+                        payload.get('msg_id', ''),
+                        payload.get('reply_text', ''),
+                        payload.get('msg_content', ''),
+                        current_time_str
+                    )
+                    logger.info("Đã gửi lệnh chốt Zalo âm thầm (không nhảy tab)")
+                except Exception as e2:
+                    logger.error(f"Lỗi _do_send: {traceback.format_exc()}")
+
         except Exception as e:
             logger.error(f"Lỗi _execute_reply_safe: {traceback.format_exc()}")
     
@@ -1911,7 +1944,15 @@ class ZAutoProApp(MDApp):
 
     def _start_download_apk(self, apk_url):
         # Đã đưa các import lên đầu file thì ở đây không cần nữa
-        save_path = os.path.join(BASE_PATH, 'update.apk')
+        # Lưu vào cache thư mục ngoài để FileProvider có thể đọc được
+        if platform == 'android':
+            try:
+                ctx = PythonActivity.mActivity
+                save_path = os.path.join(ctx.getExternalCacheDir().getAbsolutePath(), 'update.apk')
+            except:
+                save_path = os.path.join(BASE_PATH, 'update.apk')
+        else:
+            save_path = os.path.join(BASE_PATH, 'update.apk')
         try:
             if os.path.exists(save_path):
                 os.remove(save_path)
@@ -1989,13 +2030,12 @@ class ZAutoProApp(MDApp):
 
             if Build.VERSION.SDK_INT >= 24:
                 FileProvider = autoclass('androidx.core.content.FileProvider')
-                # Authority phải khớp với AndroidManifest.xml
-                authority = f"{pkg}.provider"  # thử ".provider" thay vì ".fileprovider"
+                # Authority khớp chuẩn với buildozer p4a default
+                authority = f"{pkg}.fileprovider"
                 try:
                     uri = FileProvider.getUriForFile(activity, authority, apk_file)
                 except Exception:
-                    # fallback thử authority khác
-                    uri = FileProvider.getUriForFile(activity, f"{pkg}.fileprovider", apk_file)
+                    uri = FileProvider.getUriForFile(activity, f"{pkg}.provider", apk_file)
             else:
                 Uri = autoclass('android.net.Uri')
                 uri = Uri.fromFile(apk_file)
@@ -2004,6 +2044,12 @@ class ZAutoProApp(MDApp):
             intent.setDataAndType(uri, "application/vnd.android.package-archive")
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
+            # Giữ Foreground Service sống trước khi nhường màn hình cho installer
+            try:
+                autoclass('org.zauto.ZaloForegroundService').startService(activity)
+            except: pass
 
             activity.startActivity(intent)
             logger.info("Đã mở màn hình cài đặt APK")
