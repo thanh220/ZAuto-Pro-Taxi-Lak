@@ -868,7 +868,7 @@ class ZAutoHybridVisionEngine:
 class ZAutoProApp(MDApp):
     # ==========================================
     # QUẢN LÝ PHIÊN BẢN (TĂNG SỐ NÀY LÊN MỖI LẦN BUILD MỚI)
-    APP_VERSION = 4.4  
+    APP_VERSION = 4.5
     
     # LINK TRẠM PHÁT SÓNG GITHUB GIST CỦA BẠN
     UPDATE_URL = "https://gist.githubusercontent.com/thienne3110/201422dc482a5ba8e519cad25aeb8918/raw/update.json"
@@ -937,6 +937,12 @@ class ZAutoProApp(MDApp):
         self.check_for_update()
         if platform == 'android':
             try:
+                # KHÓA MÀN HÌNH DỌC - CHỐNG XOAY NGANG
+                ActivityInfo = autoclass('android.content.pm.ActivityInfo')
+                PythonActivity.mActivity.setRequestedOrientation(
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                )
+
                 request_permissions([Permission.INTERNET, Permission.ACCESS_FINE_LOCATION, Permission.POST_NOTIFICATIONS])
                 autoclass('org.zauto.ZaloForegroundService').startService(PythonActivity.mActivity)
 
@@ -944,19 +950,19 @@ class ZAutoProApp(MDApp):
                 PowerManager = autoclass('android.os.PowerManager')
                 Context = autoclass('android.content.Context')
                 pm = cast(PowerManager, PythonActivity.mActivity.getSystemService(Context.POWER_SERVICE))
-                self.wakelock = pm.newWakeLock(1, "ZAuto::WakeLockCore") # Mức 1 là PARTIAL_WAKE_LOCK
+                self.wakelock = pm.newWakeLock(1, "ZAuto::WakeLockCore")
                 if not self.wakelock.isHeld():
                     self.wakelock.acquire()
 
                 # ÉP WIFI KHÔNG ĐƯỢC NGẮT (MỨC 3 - HIGH PERFORMANCE)
                 WifiManager = autoclass('android.net.wifi.WifiManager')
                 wm = cast(WifiManager, PythonActivity.mActivity.getApplicationContext().getSystemService(Context.WIFI_SERVICE))
-                # Số 3 đại diện cho WIFI_MODE_FULL_HIGH_PERF trên Android
                 self.wifilock = wm.createWifiLock(3, "ZAuto::WifiLockCore")
                 if not self.wifilock.isHeld():
                     self.wifilock.acquire()
+
                 # KHỞI TẠO KIẾN TRÚC REALTIME
-                self.processed_msg_hashes = LRUCache(maxsize=1000) # Memory safe
+                self.processed_msg_hashes = LRUCache(maxsize=1000)
                 self.global_last_reply = 0
                 self.last_reply_time = LRUCache(maxsize=200)
 
@@ -973,13 +979,12 @@ class ZAutoProApp(MDApp):
                 self.audio_worker_thread.start()
 
                 Clock.schedule_interval(self._system_watchdog, 180)
-
-                # Kích hoạt UI Queue Processor chạy 0.1s/lần
                 Clock.schedule_interval(self._process_ui_queue, 0.1)
 
-                # KÍCH HOẠT LUỒNG NGẦM HÚT TIN VÀ NUÔI WATCHDOG TRẮNG ĐÊM (CHỐNG SẬP)
+                # KÍCH HOẠT LUỒNG NGẦM HÚT TIN VÀ NUÔI WATCHDOG TRẮNG ĐÊM
                 self.poll_worker_thread = threading.Thread(target=self._java_poll_worker, daemon=True)
                 self.poll_worker_thread.start()
+
             except Exception as e:
                 logger.error(f"Lỗi on_start: {traceback.format_exc()}")
     def update_group_list_ui(self, groups):
@@ -1323,7 +1328,7 @@ class ZAutoProApp(MDApp):
 
         msg_hash = hashlib.md5(msg_clean.encode('utf-8')).hexdigest()[:12]
 
-        # Chỉ kiểm tra trùng lặp cho tin TEXT - voice sẽ dùng audio_seen_set riêng
+        # Chỉ kiểm tra trùng lặp cho tin TEXT - voice không áp dụng
         if not is_voice:
             if conversation_id in self.last_msg_per_group:
                 last_id, last_hash, last_time = self.last_msg_per_group[conversation_id]
@@ -1331,6 +1336,14 @@ class ZAutoProApp(MDApp):
                 if (msg_id == last_id or both_time_fallback) and msg_hash == last_hash:
                     if time.time() - last_time < 300.0:
                         return # Tin text trùng -> Bỏ qua
+        # Voice: chỉ chặn nếu cùng msg_id THẬT (không phải TIME_/VIRTUAL_) trong 5 giây
+        else:
+            if not msg_id.startswith("TIME_") and not msg_id.startswith("VIRTUAL_") and not msg_id.startswith("CONTENT_") and not msg_id.startswith("VOICE_"):
+                voice_key = f"VOICE_REAL_{conversation_id}_{msg_id}"
+                if voice_key in self.processed_msg_hashes:
+                    if time.time() - self.processed_msg_hashes[voice_key] < 5.0:
+                        return
+                self.processed_msg_hashes[voice_key] = time.time()
 
         # Luôn cập nhật mốc mới nhất (cả voice lẫn text)
         self.last_msg_per_group[conversation_id] = (msg_id, msg_hash, time.time())
