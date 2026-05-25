@@ -11,7 +11,7 @@ source.include_exts = py,png,jpg,jpeg,kv,json,xml,java,db,ttf,otf,txt,html,css,j
 
 version = 7.0
 
-android.version_code = 44
+android.version_code = 45
 fullscreen = 0
 
 icon.filename = profile.jpg
