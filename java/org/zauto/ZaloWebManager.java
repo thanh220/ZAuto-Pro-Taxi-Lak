@@ -205,7 +205,7 @@ public class ZaloWebManager {
                 "           var handler = groupItem[key].onClick || (groupItem[key].return && groupItem[key].return.memoizedProps && groupItem[key].return.memoizedProps.onClick);" +
                 "           if (handler) handler({preventDefault:()=>{}, stopPropagation:()=>{}});" +
                 "       }" +
-                "       setTimeout(() => callback(true), 2500);" +
+                "       setTimeout(() => callback(true), 3500);" +
                 "   }" +
 
                 // BẢO LƯU HOÀN TOÀN LOGIC PHÂN TÍCH VÀ ĐỊNH VỊ TIN NHẮN THEO HARDWARE ID VÀ VOICE
@@ -1094,102 +1094,46 @@ public class ZaloWebManager {
     // =========================================================
     public static void playSpecificAudio(final Activity activity, final String conversationId, final String msgId) {
         Activity safeActivity = activityRef != null ? activityRef.get() : activity;
-		if (safeActivity == null || hiddenWebView == null) return;
+        if (safeActivity == null || hiddenWebView == null) return;
 
-		safeActivity.runOnUiThread(() -> {
-			String safeConvId = conversationId != null ? conversationId.replace("'", "\\'") : "";
-			String safeMsgId  = msgId != null ? msgId.replace("'", "\\'") : "";
-
-			String js =
-			"(function() {" +
-			"  var convId = '" + safeConvId + "';" +
-			"  var tgtMsgId = '" + safeMsgId + "';" +
-			"  console.log('ZAuto-Play: convId=' + convId + ' msgId=' + tgtMsgId);" +
-
-			// BƯỚC 1: Mở đúng nhóm sidebar nếu chưa mở
-			"  function openConv(cb) {" +
-			"    var sideItem = document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"] .conv-item')" +
-			"                || document.querySelector('.msg-item[anim-data-id=\"' + convId + '\"]');" +
-			"    if (sideItem) {" +
-			"      sideItem.scrollIntoView({block:'center'});" +
-			"      sideItem.click();" +
-			"      var rk = Object.keys(sideItem).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
-			"      if (rk && sideItem[rk]) {" +
-			"        var h = sideItem[rk].onClick || (sideItem[rk].return && sideItem[rk].return.memoizedProps && sideItem[rk].return.memoizedProps.onClick);" +
-			"        if (h) h({preventDefault:function(){}, stopPropagation:function(){}});" +
-			"      }" +
-			"      setTimeout(cb, 2000);" +
-			"    } else { cb(); }" +
-			"  }" +
-
-			// BƯỚC 2: Tìm nút Play theo DOM thực tế ảnh 1+2+3
-			"  function findPlayBtn() {" +
-			// Ưu tiên 1: voice-mCntr_ container chứa msgId — CHÍNH XÁC NHẤT
-			"    var wrapper = document.querySelector('[id*=\"voice-mCntr_\"][id*=\"' + tgtMsgId + '\"] .voice-message-normal-old__player-control-wrapper')" +
-			"                || document.querySelector('[id*=\"voice-mCntr_\"][id*=\"' + tgtMsgId + '\"]');" +
-			// Ưu tiên 2: bb_msg_id_ chứa msgId
-			"    if (!wrapper) wrapper = document.querySelector('[id=\"bb_msg_id_' + tgtMsgId + '\"]');" +
-			// Ưu tiên 3: data-qid chứa msgId
-			"    if (!wrapper) {" +
-			"      var frames = document.querySelectorAll('[data-qid]');" +
-			"      for (var i = 0; i < frames.length; i++) {" +
-			"        if ((frames[i].getAttribute('data-qid') || '').includes(tgtMsgId)) { wrapper = frames[i]; break; }" +
-			"      }" +
-			"    }" +
-			// Ưu tiên 4: fallback lấy player-control-wrapper cuối cùng trên màn hình
-			"    if (!wrapper) {" +
-			"      var allVoice = document.querySelectorAll('.voice-message-normal-old__player-control-wrapper');" +
-			"      if (allVoice.length > 0) wrapper = allVoice[allVoice.length - 1];" +
-			"    }" +
-			"    if (!wrapper) return null;" +
-			// Tìm <i class="fa fa-PlayCircle_24_Filled"> — ĐÚNG CLASS TỪ DOM ẢNH
-			"    return wrapper.querySelector('i.fa.fa-PlayCircle_24_Filled')" +
-			"        || wrapper.querySelector('.fa-PlayCircle_24_Filled')" +
-			"        || wrapper.querySelector('[class*=\"PlayCircle_24_Filled\"]')" +
-			"        || wrapper.querySelector('[class*=\"PlayCircle\"]')" +
-			"        || wrapper.querySelector('i[class*=\"play\"]')" +
-			"        || wrapper.querySelector('button')" +
-			"        || wrapper;" +
-			"  }" +
-
-			// BƯỚC 3: Click nút play — 4 cách theo thứ tự ưu tiên
-			"  function clickPlay(btn) {" +
-			"    if (!btn) return false;" +
-			"    btn.scrollIntoView({block:'center', behavior:'smooth'});" +
-			// Cách 1: DOM click
-			"    btn.click();" +
-			// Cách 2: MouseEvent bubble
-			"    btn.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));" +
-			// Cách 3: React fiber/props handler
-			"    var rk = Object.keys(btn).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
-			"    if (rk && btn[rk]) {" +
-			"      var p = btn[rk].memoizedProps || btn[rk].pendingProps || btn[rk];" +
-			"      var h = p.onClick || (btn[rk].return && btn[rk].return.memoizedProps && btn[rk].return.memoizedProps.onClick);" +
-			"      if (h) h({preventDefault:function(){}, stopPropagation:function(){}});" +
-			"    }" +
-			// Cách 4: Click wrapper cha voice-message-normal-old__player-control-wrapper
-			"    var pw = btn.closest('.voice-message-normal-old__player-control-wrapper');" +
-			"    if (pw && pw !== btn) {" +
-			"      pw.click();" +
-			"      pw.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true}));" +
-			"    }" +
-			"    console.log('ZAuto-Play: Clicked:', btn.className);" +
-			"    return true;" +
-			"  }" +
-
-			// LUỒNG CHÍNH: Mở nhóm → tìm nút → click → retry 10 lần
-			"  openConv(function() {" +
-			"    var btn = findPlayBtn();" +
-			"    if (clickPlay(btn)) return;" +
-			"    var tries = 0;" +
-			"    var iv = setInterval(function() {" +
-			"      tries++;" +
-			"      if (clickPlay(findPlayBtn()) || tries >= 10) clearInterval(iv);" +
-			"    }, 600);" +
-			"  });" +
-			"})();";
-
-			hiddenWebView.evaluateJavascript(js, null);
-		});
-	}
+        safeActivity.runOnUiThread(() -> {
+            String js = "(function() {" +
+                "   let item = document.querySelector('.msg-item[anim-data-id=\"" + conversationId + "\"] .conv-item');" +
+                "   if(item) {" +
+                "       let key = Object.keys(item).find(k => k.startsWith('__reactEventHandlers') || k.startsWith('__reactFiber'));" +
+                "       if (key && item[key]) {" +
+                "           if (item[key].onClick) item[key].onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
+                "           else if (item[key].return && item[key].return.memoizedProps.onClick) item[key].return.memoizedProps.onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
+                "       } else { item.click(); }" +
+                "   }" +
+                "   setTimeout(() => {" +
+                "       let findAndPlay = () => {" +
+                "           let msgNode = document.querySelector('[data-msg-id=\"" + msgId + "\"]');" +
+                "           if (!msgNode) msgNode = document.querySelector('div[id*=\"" + msgId + "\"]');" +
+                "           if (!msgNode) {" +
+                "               let allMsgs = document.querySelectorAll('.chat-item');" +
+                "               if(allMsgs.length > 0) msgNode = allMsgs[allMsgs.length - 1];" +
+                "           }" +
+                "           if (!msgNode) return false;" +
+                "           let playBtn = msgNode.querySelector('.fa-PlayCircle_24_Filled, [class*=\"PlayCircle\"], .v-audio, i[class*=\"play\"], div[class*=\"play-btn\"]');" +
+                "           if(playBtn) {" +
+                "               playBtn.click();" +
+                "               let k = Object.keys(playBtn).find(key => key.startsWith('__reactEventHandlers') || key.startsWith('__reactFiber'));" +
+                "               if(k && playBtn[k] && playBtn[k].onClick) playBtn[k].onClick({preventDefault:()=>{}, stopPropagation:()=>{}});" +
+                "               return true;" +
+                "           }" +
+                "           return false;" +
+                "       };" +
+                "       if (!findAndPlay()) {" +
+                "           let retryCount = 0;" +
+                "           let interval = setInterval(() => {" +
+                "               retryCount++;" +
+                "               if (findAndPlay() || retryCount > 8) clearInterval(interval);" +
+                "           }, 500);" +
+                "       }" +
+                "   }, 1500);" +
+                "})();";
+            hiddenWebView.evaluateJavascript(js, null);
+        });
+    }
 }
