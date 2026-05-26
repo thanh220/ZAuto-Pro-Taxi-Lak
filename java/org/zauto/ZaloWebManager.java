@@ -159,27 +159,116 @@ public class ZaloWebManager {
                 // BƯỚC 0: KHÁM PHÁ WEBPACK API (GIỮ NGUYÊN TỪ BẢN CŨ)
                 // ─────────────────────────────────────────────────────────────
                 "function _discoverApi() {" +
-                "   if (window.zauto_api_hijacked && window.zMessenger && typeof window.zMessenger.sendMessage==='function') return true;" +
-                "   window.zauto_api_hijacked = false; window._zauto_webpack_pushed = false;" +
-                "   try {" +
-                "       var chunks = window.webpackChunkzalo_web_app || window.webpackJsonp;" +
-                "       if (!chunks) return false;" +
-                "       var spyId = '__zauto_spy_v5__'; var req = null;" +
-                "       chunks.push([[spyId], {[spyId]: function(m,e,r){req=r;}}, [[spyId]]]);" +
-                "       if (!req || !req.m) return false;" +
-                "       for (var id in req.m) {" +
-                "           try {" +
-                "               var mod = req(id); var exp = mod && (mod.default || mod);" +
-                "               if (exp && typeof exp.sendMessage==='function' && typeof exp.sendTextMessage==='function') {" +
-                "                   window.zMessenger = exp; window.zauto_api_hijacked = true; break;" +
-                "               }" +
-                "           } catch(ex) { continue; }" +
-                "       }" +
-                "   } catch(ex2) {}" +
-                "   return !!window.zauto_api_hijacked;" +
-                "}" +
-                // Chạy ngay lập tức
-                "_discoverApi();" +
+				"   if (window.zauto_api_hijacked && window.zMessenger && typeof window.zMessenger.sendMessage==='function') return true;" +
+				"   window.zauto_api_hijacked = false;" +
+
+				"   // ── TẦNG A: Quét webpackChunk với nhiều tên có thể ──" +
+				"   var chunkNames = ['webpackChunkzalo_web_app','webpackChunkpc_web_zalo','webpackChunknewfeed','webpackJsonp','webpackChunk'];" +
+				"   var chunks = null;" +
+				"   for (var cn=0; cn<chunkNames.length; cn++) { if (window[chunkNames[cn]]) { chunks = window[chunkNames[cn]]; break; } }" +
+
+				"   if (chunks) {" +
+				"       try {" +
+				"           var spyId = '__zauto_spy_v9__'; var req = null;" +
+				"           var origPush = chunks.push.bind(chunks);" +
+				"           chunks.push([[spyId],{[spyId]:function(m,e,r){req=r;}},[[spyId]]]);" +
+				"           if (req && req.m) {" +
+				"               var modIds = Object.keys(req.m);" +
+				"               for (var i=0; i<modIds.length; i++) {" +
+				"                   try {" +
+				"                       var mod = req(modIds[i]);" +
+				"                       var candidates = [mod, mod&&mod.default, mod&&mod.exports, mod&&mod.MessageService, mod&&mod.messenger];" +
+				"                       for (var ci=0; ci<candidates.length; ci++) {" +
+				"                           var exp = candidates[ci];" +
+				"                           if (!exp || typeof exp !== 'object') continue;" +
+				"                           var hasSend = typeof exp.sendMessage==='function' || typeof exp.sendTextMessage==='function' || typeof exp.sendMsg==='function';" +
+				"                           if (hasSend) { window.zMessenger=exp; window.zauto_api_hijacked=true; break; }" +
+				"                       }" +
+				"                       if (window.zauto_api_hijacked) break;" +
+				"                   } catch(ex) { continue; }" +
+				"               }" +
+				"           }" +
+				"       } catch(ex2) {}" +
+				"   }" +
+
+				"   // ── TẦNG B: Tìm qua __webpack_require__ trực tiếp ──" +
+				"   if (!window.zauto_api_hijacked) {" +
+				"       try {" +
+				"           var wreq = window.__webpack_require__ || window.webpackRequire;" +
+				"           if (!wreq && chunks) { chunks.push([[Date.now()],{},function(r){wreq=r;}]); }" +
+				"           if (wreq && wreq.m) {" +
+				"               for (var wid in wreq.m) {" +
+				"                   try {" +
+				"                       var wm = wreq(wid); var we = wm&&(wm.default||wm);" +
+				"                       if (we && (typeof we.sendMessage==='function'||typeof we.sendMsg==='function')) {" +
+				"                           window.zMessenger=we; window.zauto_api_hijacked=true; break;" +
+				"                       }" +
+				"                   } catch(e){}" +
+				"               }" +
+				"           }" +
+				"       } catch(e2) {}" +
+				"   }" +
+
+				"   // ── TẦNG C: Đào React Fiber từ conversation store ──" +
+				"   if (!window.zauto_api_hijacked) {" +
+				"       try {" +
+				"           var storeRoots = [" +
+				"               document.getElementById('app')," +
+				"               document.querySelector('#main-app')," +
+				"               document.querySelector('[class*=chat-window]')," +
+				"               document.querySelector('[class*=MessageList]')," +
+				"               document.querySelector('[class*=conversation]')" +
+				"           ].filter(Boolean);" +
+				"           for (var ri=0; ri<storeRoots.length; ri++) {" +
+				"               var frk = Object.keys(storeRoots[ri]).find(function(k){return k.startsWith('__reactFiber')||k.startsWith('__reactContainer');});" +
+				"               if (!frk) continue;" +
+				"               var fnode = storeRoots[ri][frk]; var fdepth = 0;" +
+				"               while (fnode && fdepth < 200) {" +
+				"                   var fmp = fnode.memoizedProps;" +
+				"                   if (fmp && fmp.store && fmp.store.dispatch) {" +
+				"                       var st = fmp.store.getState ? fmp.store.getState() : null;" +
+				"                       if (st) {" +
+				"                           var skeys = ['message','messenger','chat','conversation','msg'];" +
+				"                           for (var sk=0; sk<skeys.length; sk++) {" +
+				"                               var svc = st[skeys[sk]];" +
+				"                               if (svc && typeof svc.sendMessage==='function') {" +
+				"                                   window.zMessenger=svc; window.zauto_api_hijacked=true; break;" +
+				"                               }" +
+				"                           }" +
+				"                       }" +
+				"                   }" +
+				"                   if (window.zauto_api_hijacked) break;" +
+				"                   fnode = fnode.child || fnode.sibling || (fnode.return?fnode.return.sibling:null); fdepth++;" +
+				"               }" +
+				"               if (window.zauto_api_hijacked) break;" +
+				"           }" +
+				"       } catch(e3) {}" +
+				"   }" +
+
+				"   // ── TẦNG D: Hook XMLHttpRequest / fetch để bắt API thật ──" +
+				"   if (!window.zauto_api_hijacked && !window._zauto_hook_set) {" +
+				"       window._zauto_hook_set = true;" +
+				"       var origXHR = window.XMLHttpRequest.prototype.open;" +
+				"       window.XMLHttpRequest.prototype.open = function(method, url) {" +
+				"           if (typeof url==='string' && url.includes('sendmsg')) {" +
+				"               window._zauto_send_url = url;" +
+				"           }" +
+				"           return origXHR.apply(this, arguments);" +
+				"       };" +
+				"       var origFetch = window.fetch;" +
+				"       window.fetch = function(input, init) {" +
+				"           var url = typeof input==='string' ? input : (input&&input.url||'');" +
+				"           if (url.includes('sendmsg') || url.includes('send_msg') || url.includes('message/send')) {" +
+				"               window._zauto_send_url = url;" +
+				"               if (init && init.body) { try { window._zauto_last_payload = JSON.parse(init.body); } catch(e){} }" +
+				"           }" +
+				"           return origFetch.apply(this, arguments);" +
+				"       };" +
+				"   }" +
+
+				"   return !!window.zauto_api_hijacked;" +
+				"}" +
+				"_discoverApi();" +
 
                 // ─────────────────────────────────────────────────────────────
                 // BƯỚC 1: MỞ ĐÚNG NHÓM (GIỮ NGUYÊN + TĂNG TIMEOUT 3500ms)
@@ -213,39 +302,57 @@ public class ZaloWebManager {
                 // BƯỚC 2: TÌM NODE TIN NHẮN (GIỮ NGUYÊN TOÀN BỘ LOGIC CŨ)
                 // ─────────────────────────────────────────────────────────────
                 "function _findNode() {" +
-                "   var node = null;" +
-                // Ưu tiên 1: ID cứng từ DOM (bb_msg_id_, data-msg-id, data-qid)
-                "   if (_targetId && _targetId.length>3 && !_targetId.startsWith('TIME_') && !_targetId.startsWith('VIRTUAL_') && !_targetId.startsWith('CONTENT_') && !_targetId.startsWith('CACHE_')) {" +
-                "       node = document.querySelector('[id=\"bb_msg_id_'+_targetId+'\"]')" +
-                "           || document.querySelector('[data-msg-id=\"'+_targetId+'\"]')" +
-                "           || document.querySelector('div[id*=\"'+_targetId+'\"]');" +
-                "       if (!node) {" +
-                "           var frames=document.querySelectorAll('[data-qid]');" +
-                "           for (var fi=0;fi<frames.length;fi++) {" +
-                "               if ((frames[fi].getAttribute('data-qid')||'').includes(_targetId)){node=frames[fi];break;}" +
-                "           }" +
-                "       }" +
-                "   }" +
-                // Ưu tiên 2: Tìm theo nội dung text / voice keyword
-                "   if (!node) {" +
-                "       var isVoice = _search.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i')||_search.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]')||_search.toLowerCase().includes('voice')||_search.toLowerCase().includes('audio');" +
-                "       var all=document.querySelectorAll('.chat-item,.message-item,[class*=message],[class*=chat-bubble],div[id^=msg_],div[id^=msg-]');" +
-                "       for (var i=all.length-1;i>=0;i--) {" +
-                "           var el=all[i]; var html=(el.innerHTML||'').toLowerCase();" +
-                "           if (isVoice) {" +
-                "               if (html.includes('audio')||html.includes('ico-voice')||html.includes('fa-playcircle')||html.includes('v-audio')){node=el;break;}" +
-                "           } else if (_search.length>2) {" +
-                "               if ((el.innerText||el.textContent||'').includes(_search)){node=el;break;}" +
-                "           }" +
-                "       }" +
-                "   }" +
-                // Fallback: tin cuối cùng
-                "   if (!node) {" +
-                "       var last=document.querySelectorAll('.chat-item.flx,div[id^=msg_],div[id^=msg-],.chat-item,.message-item');" +
-                "       if (last.length>0) node=last[last.length-1];" +
-                "   }" +
-                "   return node;" +
-                "}" +
+				"   var node = null;" +
+				"   var isVoice = _search.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i')||_search.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]')||_search.toLowerCase().includes('voice')||_search.toLowerCase().includes('audio');" +
+
+				// Ưu tiên 1: ID cứng — chỉ áp dụng cho tin TEXT có ID thật
+				"   if (!isVoice && _targetId && _targetId.length>3 && !_targetId.startsWith('TIME_') && !_targetId.startsWith('VIRTUAL_') && !_targetId.startsWith('CONTENT_') && !_targetId.startsWith('CACHE_') && !_targetId.startsWith('VOICE_')) {" +
+				"       node = document.querySelector('[id=\"bb_msg_id_'+_targetId+'\"]')" +
+				"           || document.querySelector('[data-msg-id=\"'+_targetId+'\"]')" +
+				"           || document.querySelector('div[id*=\"'+_targetId+'\"]');" +
+				"       if (!node) {" +
+				"           var frames=document.querySelectorAll('[data-qid]');" +
+				"           for (var fi=0;fi<frames.length;fi++) {" +
+				"               if ((frames[fi].getAttribute('data-qid')||'').includes(_targetId)){node=frames[fi];break;}" +
+				"           }" +
+				"       }" +
+				"   }" +
+
+				// Ưu tiên 2: Tin THOẠI — tìm đúng BONG BÓNG audio nhỏ nhất, không phải container cha
+				"   if (!node && isVoice) {" +
+				// Tìm tất cả element audio/voice trong vùng chat
+				"       var voiceBubbles = document.querySelectorAll('[class*=audio],[class*=voice-msg],[class*=VoiceMsg],[class*=AudioMessage],[class*=v-audio],.icon-voice,.ico-voice');" +
+				"       if (voiceBubbles.length > 0) {" +
+				"           node = voiceBubbles[voiceBubbles.length - 1];" +
+				// Đi ngược lên tìm container tin nhắn thật (cha gần nhất có id hoặc data-msg-id)
+				"           var msgContainer = node.closest('[id^=msg_],[id^=msg-],[id^=bb_msg_id_],[data-msg-id],.chat-bubble,.message-bubble,[class*=chat-message]');" +
+				"           if (msgContainer) node = msgContainer;" +
+				"       }" +
+				// Fallback voice: tìm trong toàn bộ chat-item chứa audio HTML
+				"       if (!node) {" +
+				"           var allItems = document.querySelectorAll('div[id^=msg_],div[id^=msg-],.chat-bubble,[class*=message-bubble],.chat-item');" +
+				"           for (var vi=allItems.length-1;vi>=0;vi--) {" +
+				"               var vhtml=(allItems[vi].innerHTML||'').toLowerCase();" +
+				"               if (vhtml.includes('ico-voice')||vhtml.includes('v-audio')||vhtml.includes('fa-playcircle')||vhtml.includes('audio-time')||vhtml.includes('audio-duration')) { node=allItems[vi]; break; }" +
+				"           }" +
+				"       }" +
+				"   }" +
+
+				// Ưu tiên 3: Tin TEXT — tìm theo nội dung
+				"   if (!node && !isVoice && _search.length>2) {" +
+				"       var allMsgs=document.querySelectorAll('div[id^=msg_],div[id^=msg-],.chat-bubble,[class*=message-bubble],.chat-item');" +
+				"       for (var i=allMsgs.length-1;i>=0;i--) {" +
+				"           if ((allMsgs[i].innerText||allMsgs[i].textContent||'').includes(_search)){node=allMsgs[i];break;}" +
+				"       }" +
+				"   }" +
+
+				// Fallback cuối: tin cuối cùng trong chat
+				"   if (!node) {" +
+				"       var last=document.querySelectorAll('div[id^=msg_],div[id^=msg-],.chat-bubble,.chat-item');" +
+				"       if (last.length>0) node=last[last.length-1];" +
+				"   }" +
+				"   return node;" +
+				"}" +
 
                 // ─────────────────────────────────────────────────────────────
                 // BƯỚC 3: TRÍCH XUẤT REACT OBJECT + REAL ID TỪ FIBER
@@ -261,7 +368,7 @@ public class ZaloWebManager {
                 "       while(fn && step<10) {" +
                 "           var p=fn.memoizedProps||fn.pendingProps;" +
                 "           if (p) {" +
-                "               var o=p.msg||p.message||p.data||p.item;" +
+                "               var o=p.msg||p.message||p.data||p.item||p.msgData||p.msgInfo||p.messageData||p.payload||p.params;" +
                 "               if (o&&typeof o==='object'&&(o.msgId||o.globalMsgId||o.cliMsgId)) {" +
                 "                   res.id=String(o.msgId||o.globalMsgId||o.cliMsgId); res.obj=o; return res;" +
                 "               }" +
@@ -275,7 +382,7 @@ public class ZaloWebManager {
                 "       var ck=Object.keys(ch[i]).find(k=>k.startsWith('__reactFiber')||k.startsWith('__reactProps'));" +
                 "       if (ck&&ch[i][ck]) {" +
                 "           var cp=ch[i][ck].memoizedProps||ch[i][ck].pendingProps||{};" +
-                "           var co=cp.msg||cp.message||cp.data||cp.item;" +
+                "           var co=cp.msg||cp.message||cp.data||cp.item||cp.msgData||cp.msgInfo||cp.messageData||cp.payload||cp.params;" +
                 "           if (co&&typeof co==='object') {" +
                 "               var cid=String(co.msgId||co.globalMsgId||co.cliMsgId||'');" +
                 "               if (cid&&cid.length>4){res.id=cid;res.obj=co;return res;}" +
@@ -299,32 +406,65 @@ public class ZaloWebManager {
                 "       } catch(e) {}" +
                 "   }" +
                 "   if (res.id&&res.id.length>4) res.id=res.id.replace('msg-','').replace('msg_','');" +
-                "   return res;" +
-                "}" +
+				// ── TẦNG EXTRA MỚI THÊM VÀO ĐÂY ──
+				"   if (!res.obj || !res.id || res.id.length < 5) {" +
+				"       var qnode = node.closest('[data-qid]') || node.querySelector('[data-qid]') || node;" +
+				"       var qid = qnode ? qnode.getAttribute('data-qid') : null;" +
+				"       if (qid) {" +
+				"           var parts = qid.split('_');" +
+				"           if (parts.length >= 2) {" +
+				"               var rawMsgId = parts[1];" +
+				"               var senderPart = parts[0].split('@');" +
+				"               var senderId = senderPart[0]||'';" +
+				"               var convIdFromQid = senderPart[1]||_convId;" +
+				"               if (rawMsgId && rawMsgId.length > 4) {" +
+				"                   res.id = rawMsgId;" +
+				"                   if (!res.obj) res.obj = {" +
+				"                       globalMsgId: rawMsgId," +
+				"                       msgId: rawMsgId," +
+				"                       ownerId: senderId," +
+				"                       senderId: senderId," +
+				"                       cliMsgId: rawMsgId," +
+				"                       msg: node ? (node.innerText||node.textContent||'').trim().substring(0,200) : _search," +
+				"                       type: 1" +
+				"                   };" +
+				"               }" +
+				"           }" +
+				"       }" +
+				"   }" +
+				// ── KẾT THÚC TẦNG EXTRA ──
+				"   return res;" +
+				"}" +
 
                 // ─────────────────────────────────────────────────────────────
                 // BƯỚC 4: ĐIỀN TEXT + GỬI (GIỮ NGUYÊN SELECTOR ĐẦY ĐỦ)
                 // ─────────────────────────────────────────────────────────────
                 "function _typeAndSend() {" +
-                "   var input = document.querySelector('#chat-input-content')" +
-                "            || document.querySelector('#richInput')" +
-                "            || document.querySelector('[contenteditable=true][class*=chat-input]')" +
-                "            || document.querySelector('[contenteditable=true][data-lexical-editor]')" +
-                "            || document.querySelector('[contenteditable=true][role=textbox]')" +
-                "            || document.querySelector('[contenteditable=true]')" +
-                "            || document.querySelector('.chat-input');" +
-                "   if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); return; }" +
-                "   input.setAttribute('readonly','true');" +
-                "   input.focus();" +
-                "   input.removeAttribute('readonly');" +
-                "   input.innerHTML = '';" +
+				// Ẩn bàn phím TRƯỚC MỌI THỨ: blur element đang focus, body.focus() chặn Android IME
+				"   try { var _ae=document.activeElement; if(_ae&&_ae!==document.body){_ae.blur();} document.body.focus(); } catch(e) {}" +
+				"   var input = document.querySelector('#chat-input-content')" +
+				"            || document.querySelector('#richInput')" +
+				"            || document.querySelector('[contenteditable=true][class*=chat-input]')" +
+				"            || document.querySelector('[contenteditable=true][data-lexical-editor]')" +
+				"            || document.querySelector('[contenteditable=true][role=textbox]')" +
+				"            || document.querySelector('[contenteditable=true]')" +
+				"            || document.querySelector('.chat-input');" +
+				"   if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); return; }" +
+				"   input.setAttribute('readonly','true');" +
+				// KHÔNG focus() — readonly trick đủ để React nhận value mà không kéo bàn phím lên
+				"   input.removeAttribute('readonly');" +
+				"   input.innerHTML = '';" +
                 // 3 cách điền text — dùng cả 3 để đảm bảo React nhận được
                 "   try { document.execCommand('insertText',false,_reply); } catch(ex) {}" +
                 "   if (!input.textContent.trim()) { input.innerHTML = _reply; }" +
                 "   input.dispatchEvent(new Event('input',{bubbles:true}));" +
 				"   input.dispatchEvent(new Event('change',{bubbles:true}));" +
-				"   input.blur();" + // ẨN BÀN PHÍM NGAY SAU KHI ĐIỀN TEXT
+				// Tầng 1: blur sau khi điền
+				"   input.blur();" +
+				"   document.body.focus();" +
 				"   setTimeout(function() {" +
+				// Tầng 2: blur trước khi click gửi
+				"       try { var _ae2=document.activeElement; if(_ae2&&_ae2!==document.body){_ae2.blur();} } catch(e){}" +
 				"       var iSend = document.querySelector('i.fa.fa-Sent-msg_24_Line')" +
 				"                || document.querySelector('.fa-Sent-msg_24_Line')" +
 				"                || document.querySelector('[class*=Sent-msg_24_Line]');" +
@@ -338,8 +478,12 @@ public class ZaloWebManager {
 				"       input.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
 				"       input.dispatchEvent(new KeyboardEvent('keypress',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
 				"       input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
-				"       input.blur();" + // ĐẢM BẢO BÀN PHÍM XUỐNG SAU KHI GỬI ENTER
+				// Tầng 3: readonly lock + blur + body.focus sau Enter
+				"       input.setAttribute('readonly','true');" +
+				"       input.blur();" +
+				"       document.body.focus();" +
 				"       setTimeout(function(){" +
+				"           input.removeAttribute('readonly');" +
 				"           var chk=document.querySelector('#chat-input-content,#richInput,[contenteditable=true]');" +
 				"           var ok=!chk||chk.innerHTML===''||chk.innerHTML==='<br>'||chk.textContent.trim()==='';" +
 				"           ZAutoBridge.onLoginSuccess(ok?'Chốt DOM UI QUOTE OK':'TRIGGER_VISION_FALLBACK','');" +
@@ -371,7 +515,22 @@ public class ZaloWebManager {
 				"   if (!node) { doneCb(false); return; }" +
 				"   node.scrollIntoView({block:'center', behavior:'instant'});" +
 				"   setTimeout(function() {" +
-				"       var bubble = node.querySelector('.card--text,.card-content,[class*=bubble],[class*=chat-item__content],.message-chat-inner,[class*=msg-content]') || node;" +
+				// Tìm element con nhỏ nhất có nội dung thật — ưu tiên audio container, sau đó text bubble
+				"       var bubble = node.querySelector('[class*=audio],[class*=voice-msg],[class*=VoiceMsg],[class*=v-audio],.ico-voice,.icon-voice')" +
+				"                 || node.querySelector('.card--text,.card-content,[class*=bubble],[class*=chat-item__content],.message-chat-inner,[class*=msg-content],[class*=message-content]')" +
+				"                 || node.querySelector('span[class],p[class],div[class*=text]')" +
+				"                 || node;" +
+				// Nếu bubble vẫn là node cha (không tìm được con) → đi xuống tìm con có kích thước nhỏ hơn
+				"       if (bubble === node && node.children.length > 0) {" +
+				"           var smallest = node; var smallestArea = node.offsetWidth * node.offsetHeight;" +
+				"           var allChildren = node.querySelectorAll('*');" +
+				"           for (var ci=0; ci<allChildren.length; ci++) {" +
+				"               var ch = allChildren[ci];" +
+				"               var area = ch.offsetWidth * ch.offsetHeight;" +
+				"               if (area > 100 && area < smallestArea) { smallest = ch; smallestArea = area; }" +
+				"           }" +
+				"           if (smallest !== node) bubble = smallest;" +
+				"       }" +
 				"       var rect = bubble.getBoundingClientRect();" +
 				"       var vw = window.innerWidth||document.documentElement.clientWidth;" +
 				"       var vh = window.innerHeight||document.documentElement.clientHeight;" +
@@ -408,17 +567,61 @@ public class ZaloWebManager {
 				"               }, 650);" +
 				"           }" +
 				"       } catch(te) {}" +
-				"       doneCb(triggered);" +
+
+				"       // Đợi 750ms cho popup Zalo animate xong → tìm click 'Trả lời'" +
+				"       setTimeout(function() {" +
+				"           var replyBtn = null;" +
+				"           // Tìm trong context-menu / popup đang hiện" +
+				"           var menuItems = document.querySelectorAll('[class*=context-menu] [class*=item],[class*=popup] [class*=item],[class*=menu] li,[role=menuitem],li');" +
+				"           for (var mi=0; mi<menuItems.length; mi++) {" +
+				"               var mt = (menuItems[mi].textContent||'').trim();" +
+				"               if (mt==='Trả lời'||mt==='Reply') { replyBtn=menuItems[mi]; break; }" +
+				"           }" +
+				"           // Fallback: quét toàn DOM — chỉ lấy element đang visible" +
+				"           if (!replyBtn) {" +
+				"               var allEls = document.querySelectorAll('span,div,li,button,a,p');" +
+				"               for (var ei=0; ei<allEls.length; ei++) {" +
+				"                   var et=(allEls[ei].textContent||'').trim();" +
+				"                   if ((et==='Trả lời'||et==='Reply') && allEls[ei].offsetParent!==null) {" +
+				"                       replyBtn=allEls[ei]; break;" +
+				"                   }" +
+				"               }" +
+				"           }" +
+				"           if (replyBtn) {" +
+				"               replyBtn.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));" +
+				"               replyBtn.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}));" +
+				"               replyBtn.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,cancelable:true}));" +
+				"               replyBtn.click();" +
+				"               triggered=true;" +
+				"           }" +
+				"           doneCb(triggered);" +
+				"       }, 750);" +
+
 				"   }, 300);" +
 				"}" +
-                "function _superDblClick(node, doneCb) {" +
+				"function _superDblClick(node, doneCb) {" +
                 "   if (!node) { doneCb(false); return; }" +
                 // Scroll đến tin, đợi render xong rồi mới đo tọa độ
                 "   node.scrollIntoView({block:'center', behavior:'instant'});" +
                 "   setTimeout(function() {" +
 
                 // Tìm bong bóng chính xác nhất
-                "       var bubble = node.querySelector('.card--text,.card-content,[class*=bubble],[class*=chat-item__content],.message-chat-inner,[class*=msg-content]') || node;" +
+                // Tìm element con nhỏ nhất có nội dung thật — ưu tiên audio container, sau đó text bubble
+				"       var bubble = node.querySelector('[class*=audio],[class*=voice-msg],[class*=VoiceMsg],[class*=v-audio],.ico-voice,.icon-voice')" +
+				"                 || node.querySelector('.card--text,.card-content,[class*=bubble],[class*=chat-item__content],.message-chat-inner,[class*=msg-content],[class*=message-content]')" +
+				"                 || node.querySelector('span[class],p[class],div[class*=text]')" +
+				"                 || node;" +
+				// Nếu bubble vẫn là node cha (không tìm được con) → đi xuống tìm con có kích thước nhỏ hơn
+				"       if (bubble === node && node.children.length > 0) {" +
+				"           var smallest = node; var smallestArea = node.offsetWidth * node.offsetHeight;" +
+				"           var allChildren = node.querySelectorAll('*');" +
+				"           for (var ci=0; ci<allChildren.length; ci++) {" +
+				"               var ch = allChildren[ci];" +
+				"               var area = ch.offsetWidth * ch.offsetHeight;" +
+				"               if (area > 100 && area < smallestArea) { smallest = ch; smallestArea = area; }" +
+				"           }" +
+				"           if (smallest !== node) bubble = smallest;" +
+				"       }" +
                 "       var rect = bubble.getBoundingClientRect();" +
                 "       var vw = window.innerWidth||document.documentElement.clientWidth;" +
                 "       var vh = window.innerHeight||document.documentElement.clientHeight;" +
@@ -429,15 +632,22 @@ public class ZaloWebManager {
                 "           rect = bubble.getBoundingClientRect();" +
                 "       }" +
 
-				// FIX: Click vào VÙNG TRỐNG bên phải bubble, không phải tâm bubble
-				"       var bubbleRight = rect.right;" +
-				"       var rowRight = vw - 10;" +
-				"       var cx, cy;" +
-				"       cy = Math.max(10, Math.min(rect.top + rect.height/2, vh-10));" +
-				"       if (rowRight - bubbleRight > 30) {" +
-				"           cx = Math.min(bubbleRight + 20, rowRight);" +
+				// Double-click đúng chuẩn Zalo: click vào VÙNG TRỐNG trong hàng tin nhắn (bên ngoài bubble text)
+				// Theo cấu trúc HTML: .message-frame là row toàn bộ, bubble là .text-message__container bên trong
+				"       var row = node.closest('.message-frame,.message-container,[class*=message-row],[class*=chat-item],[class*=MessageItem]') || node;" +
+				"       var rowRect = row.getBoundingClientRect();" +
+				"       var bubbleRect = bubble.getBoundingClientRect();" +
+				"       var cy = Math.max(10, Math.min(rowRect.top + rowRect.height/2, vh-10));" +
+				"       var cx;" +
+				// Kiểm tra vùng trống BÊN PHẢI bubble trong row
+				"       if (rowRect.right - bubbleRect.right > 30) {" +
+				"           cx = Math.min(bubbleRect.right + Math.floor((rowRect.right - bubbleRect.right)/2), vw-10);" +
+				// Kiểm tra vùng trống BÊN TRÁI bubble trong row
+				"       } else if (bubbleRect.left - rowRect.left > 30) {" +
+				"           cx = Math.max(10, rowRect.left + Math.floor((bubbleRect.left - rowRect.left)/2));" +
+				// Fallback: bubble chiếm gần hết row → click tâm bubble
 				"       } else {" +
-				"           cx = Math.max(10, Math.min(rect.left + rect.width/2, vw-10));" +
+				"           cx = Math.max(10, Math.min(bubbleRect.left + bubbleRect.width/2, vw-10));" +
 				"       }" +
 
                 "       var wrapper = node.closest('.chat-message,.message-container,[class*=message-row],[class*=chat-item],[class*=MessageItem]') || node;" +
@@ -531,29 +741,36 @@ public class ZaloWebManager {
                 "   var reactObj= ext.obj;" +
 
                 // ── TẦNG 1: API WEBPACK (nhanh nhất, quote chính xác nhất) ──
-                "   if (!_discoverApi()) { _discoverApi(); }" +
-                "   if (window.zMessenger && typeof window.zMessenger.sendMessage==='function') {" +
-                "       try {" +
-                "           var req = {toid:_convId, msg:_reply, type:1};" +
-                "           var validId = realId && realId.length>4 && !realId.startsWith('TIME_') && !realId.startsWith('VIRTUAL_') && !realId.startsWith('CONTENT_') && !realId.startsWith('CACHE_');" +
-                "           if (validId) {" +
-                "               if (reactObj) {" +
-                "                   req.quote = {" +
-                "                       globalMsgId: realId," +
-                "                       ownerId: reactObj.ownerId||reactObj.senderId||reactObj.uid||''," +
-                "                       dName:   reactObj.dName||reactObj.senderName||reactObj.fromName||''," +
-                "                       msg:     reactObj.content||reactObj.msg||reactObj.text||_search," +
-                "                       type:    reactObj.msgType||reactObj.type||1" +
-                "                   };" +
-                "               } else {" +
-                "                   req.quote = {globalMsgId:realId, msg:_search, type:1};" +
-                "               }" +
-                "           }" +
-                "           window.zMessenger.sendMessage(req);" +
-                "           ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK','');" +
-                "           return;" +
-                "       } catch(apiErr) { console.log('API fail->DOM:', String(apiErr)); }" +
-                "   }" +
+                "   _discoverApi();" +
+				"   var _sendFn = window.zMessenger && (" +
+				"       window.zMessenger.sendMessage ||" +
+				"       window.zMessenger.sendQuoteMsg ||" +
+				"       window.zMessenger.replyMessage ||" +
+				"       window.zMessenger.sendTextMessage ||" +
+				"       window.zMessenger.sendMsg" +
+				"   );" +
+				"   if (typeof _sendFn === 'function') {" +
+				"       try {" +
+				"           var req = {toid:_convId, msg:_reply, type:1};" +
+				"           var validId = realId && realId.length>4 && !realId.startsWith('TIME_') && !realId.startsWith('VIRTUAL_') && !realId.startsWith('CONTENT_') && !realId.startsWith('CACHE_');" +
+				"           if (validId) {" +
+				"               if (reactObj) {" +
+				"                   req.quote = {" +
+				"                       globalMsgId: realId," +
+				"                       ownerId: reactObj.ownerId||reactObj.senderId||reactObj.uid||''," +
+				"                       dName:   reactObj.dName||reactObj.senderName||reactObj.fromName||''," +
+				"                       msg:     reactObj.content||reactObj.msg||reactObj.text||_search," +
+				"                       type:    reactObj.msgType||reactObj.type||1" +
+				"                   };" +
+				"               } else {" +
+				"                   req.quote = {globalMsgId:realId, msg:_search, type:1};" +
+				"               }" +
+				"           }" +
+				"           _sendFn.call(window.zMessenger, req);" +
+				"           ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK','');" +
+				"           return;" +
+				"       } catch(apiErr) { console.log('API fail->DOM:', String(apiErr)); }" +
+				"   }" +
 
                 // ── TẦNG 2: SUPER DOUBLE CLICK → LONG PRESS PHÒNG BỊ → GỬI ─────────
 				"   try {" +
@@ -564,10 +781,24 @@ public class ZaloWebManager {
 				"                   _typeAndSend();" +
 				"               } else {" +
 				"                   _longPress(node, function(lpTriggered) {" +
+				"                       // _longPress đã click 'Trả lời' trong popup → chờ banner" +
 				"                       _waitBanner(function(bannerOk2) {" +
-				"                           console.log('ZAuto: longPress banner='+bannerOk2);" +
-				"                           _typeAndSend();" +
-				"                       }, 1200);" +
+				"                           console.log('ZAuto: longPress+reply banner='+bannerOk2);" +
+				"                           if (bannerOk2) {" +
+				"                               _typeAndSend();" +
+				"                           } else {" +
+				"                               // Retry: popup vẫn hiện hoặc click chưa được" +
+				"                               var rb=null, els=document.querySelectorAll('span,div,li,button,a');" +
+				"                               for(var k=0;k<els.length;k++){" +
+				"                                   var kt=(els[k].textContent||'').trim();" +
+				"                                   if((kt==='Trả lời'||kt==='Reply')&&els[k].offsetParent!==null){rb=els[k];break;}" +
+				"                               }" +
+				"                               if(rb){" +
+				"                                   rb.click();" +
+				"                                   setTimeout(function(){_waitBanner(function(b3){_typeAndSend();},1000);},400);" +
+				"                               } else { _typeAndSend(); }" +
+				"                           }" +
+				"                       }, 1800);" +
 				"                   });" +
 				"               }" +
 				"           }, 1800);" +
@@ -904,9 +1135,20 @@ public class ZaloWebManager {
             
             // DEEP BYPASS: QUÉT VÉT CẠN MỌI TẦNG REACT FIBER (8 TẦNG) ĐỂ LỘT TRẦN ID BỊ GIẤU
             "           try {" +
-            "               convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
-            "               let id1 = msgItemEl.getAttribute('data-msg-id') || (msgItemEl.dataset ? msgItemEl.dataset.msgId : '');" +
-            "               if (id1 && id1.length > 5) realMsgId = id1;" +
+			"               convId = msgItemEl.getAttribute('anim-data-id') || msgItemEl.id || '';" +
+			"               let id1 = msgItemEl.getAttribute('data-msg-id') || (msgItemEl.dataset ? msgItemEl.dataset.msgId : '');" +
+			"               if (id1 && id1.length > 5) realMsgId = id1;" +
+			"               if (!realMsgId) {" +
+			"                   let qidEl = msgItemEl.querySelector('[data-qid]') || msgItemEl.closest('[data-qid]');" +
+			"                   let qid = qidEl ? qidEl.getAttribute('data-qid') : null;" +
+			"                   if (qid) {" +
+			"                       let qparts = qid.split('_');" +
+			"                       if (qparts.length >= 2 && qparts[1] && qparts[1].length > 4) {" +
+			"                           realMsgId = qparts[1];" +
+			"                           if (!convId) { let sp = qparts[0].split('@'); if(sp[1]) convId = sp[1]; }" +
+			"                       }" +
+			"                   }" +
+			"               }" +
             
             "               let keys = Object.keys(msgItemEl);" +
             "               let rK = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));" +
@@ -987,7 +1229,7 @@ public class ZaloWebManager {
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
             "               if (isVoice) {" +
-            "                   let voiceTimeKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + timeString + '_' + (Date.now() % 100000));" +
+            "                   let voiceTimeKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + timeString);" +
 			"                   stableId = 'VOICE_' + voiceTimeKey;" +
             "               } else {" +
             "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
