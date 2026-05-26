@@ -322,27 +322,29 @@ public class ZaloWebManager {
                 "   try { document.execCommand('insertText',false,_reply); } catch(ex) {}" +
                 "   if (!input.textContent.trim()) { input.innerHTML = _reply; }" +
                 "   input.dispatchEvent(new Event('input',{bubbles:true}));" +
-                "   input.dispatchEvent(new Event('change',{bubbles:true}));" +
-                "   setTimeout(function() {" +
-                "       var iSend = document.querySelector('i.fa.fa-Sent-msg_24_Line')" +
-                "                || document.querySelector('.fa-Sent-msg_24_Line')" +
-                "                || document.querySelector('[class*=Sent-msg_24_Line]');" +
-                "       var btnSend = iSend ? (iSend.closest('.z--btn--v2')||iSend.closest('button')||iSend.parentNode) : null;" +
-                "       if (!btnSend) btnSend = document.querySelector('#chat-input-container-id .send-msg-btn')" +
-                "                           || document.querySelector('[data-translate-title=STR_SEND]');" +
-                "       if (btnSend) {" +
-                "           btnSend.click();" +
-                "           btnSend.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));" +
-                "       }" +
-                "       input.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
-                "       input.dispatchEvent(new KeyboardEvent('keypress',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
-                "       input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
-                "       setTimeout(function(){" +
-                "           var chk=document.querySelector('#chat-input-content,#richInput,[contenteditable=true]');" +
-                "           var ok=!chk||chk.innerHTML===''||chk.innerHTML==='<br>'||chk.textContent.trim()==='';" +
-                "           ZAutoBridge.onLoginSuccess(ok?'Chốt DOM UI QUOTE OK':'TRIGGER_VISION_FALLBACK','');" +
-                "       },500);" +
-                "   },400);" +
+				"   input.dispatchEvent(new Event('change',{bubbles:true}));" +
+				"   input.blur();" + // ẨN BÀN PHÍM NGAY SAU KHI ĐIỀN TEXT
+				"   setTimeout(function() {" +
+				"       var iSend = document.querySelector('i.fa.fa-Sent-msg_24_Line')" +
+				"                || document.querySelector('.fa-Sent-msg_24_Line')" +
+				"                || document.querySelector('[class*=Sent-msg_24_Line]');" +
+				"       var btnSend = iSend ? (iSend.closest('.z--btn--v2')||iSend.closest('button')||iSend.parentNode) : null;" +
+				"       if (!btnSend) btnSend = document.querySelector('#chat-input-container-id .send-msg-btn')" +
+				"                           || document.querySelector('[data-translate-title=STR_SEND]');" +
+				"       if (btnSend) {" +
+				"           btnSend.click();" +
+				"           btnSend.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));" +
+				"       }" +
+				"       input.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
+				"       input.dispatchEvent(new KeyboardEvent('keypress',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
+				"       input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,cancelable:true,keyCode:13,key:'Enter',which:13}));" +
+				"       input.blur();" + // ĐẢM BẢO BÀN PHÍM XUỐNG SAU KHI GỬI ENTER
+				"       setTimeout(function(){" +
+				"           var chk=document.querySelector('#chat-input-content,#richInput,[contenteditable=true]');" +
+				"           var ok=!chk||chk.innerHTML===''||chk.innerHTML==='<br>'||chk.textContent.trim()==='';" +
+				"           ZAutoBridge.onLoginSuccess(ok?'Chốt DOM UI QUOTE OK':'TRIGGER_VISION_FALLBACK','');" +
+				"       },500);" +
+				"   },400);" +
                 "}" +
 
                 // ─────────────────────────────────────────────────────────────
@@ -363,10 +365,52 @@ public class ZaloWebManager {
                 "}" +
 
                 // ─────────────────────────────────────────────────────────────
-                // BƯỚC 6: SUPER DOUBLE CLICK — 4 CHIẾN LƯỢC SONG SONG
-                // BIẾT CHẮC: tin người gửi cuốc LUÔN NẰM TRÁI (bubble trái)
-                // Tin mình gửi nằm phải — không cần quote
-                // ─────────────────────────────────────────────────────────────
+				// BƯỚC 6B: LONG PRESS — phương án phòng bị mở popup Zalo
+				// ─────────────────────────────────────────────────────────────
+				"function _longPress(node, doneCb) {" +
+				"   if (!node) { doneCb(false); return; }" +
+				"   node.scrollIntoView({block:'center', behavior:'instant'});" +
+				"   setTimeout(function() {" +
+				"       var bubble = node.querySelector('.card--text,.card-content,[class*=bubble],[class*=chat-item__content],.message-chat-inner,[class*=msg-content]') || node;" +
+				"       var rect = bubble.getBoundingClientRect();" +
+				"       var vw = window.innerWidth||document.documentElement.clientWidth;" +
+				"       var vh = window.innerHeight||document.documentElement.clientHeight;" +
+				"       if (rect.top < 0 || rect.bottom > vh || rect.height === 0) {" +
+				"           node.scrollIntoView({block:'center', behavior:'smooth'});" +
+				"           rect = bubble.getBoundingClientRect();" +
+				"       }" +
+				"       var cx = Math.max(10, Math.min(rect.left + rect.width/2, vw-10));" +
+				"       var cy = Math.max(10, Math.min(rect.top  + rect.height/2, vh-10));" +
+				"       var probes = [bubble, node];" +
+				"       var triggered = false;" +
+				"       for (var i=0;i<probes.length;i++) {" +
+				"           var rk=Object.keys(probes[i]).find(k=>k.startsWith('__reactEventHandlers')||k.startsWith('__reactFiber'));" +
+				"           if (rk&&probes[i][rk]) {" +
+				"               var fib=probes[i][rk];" +
+				"               var lp = (fib.memoizedProps&&(fib.memoizedProps.onLongPress||fib.memoizedProps.onContextMenu))" +
+				"                     || (fib.return&&fib.return.memoizedProps&&(fib.return.memoizedProps.onLongPress||fib.return.memoizedProps.onContextMenu));" +
+				"               if (typeof lp==='function') {" +
+				"                   try { lp({preventDefault:function(){},stopPropagation:function(){},bubbles:true,clientX:cx,clientY:cy}); triggered=true; break; }" +
+				"                   catch(ex) {}" +
+				"               }" +
+				"           }" +
+				"       }" +
+				"       try {" +
+				"           bubble.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,button:2}));" +
+				"       } catch(e) {}" +
+				"       try {" +
+				"           var mkT=function(id,el){try{return new Touch({identifier:id,target:el,clientX:cx,clientY:cy,radiusX:5,radiusY:5,rotationAngle:0,force:1});}catch(e){return null;}};" +
+				"           var tLp=mkT(201,bubble);" +
+				"           if(tLp) {" +
+				"               bubble.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true,touches:[tLp],targetTouches:[tLp],changedTouches:[tLp]}));" +
+				"               setTimeout(function(){" +
+				"                   bubble.dispatchEvent(new TouchEvent('touchend',{bubbles:true,cancelable:true,touches:[],targetTouches:[],changedTouches:[tLp]}));" +
+				"               }, 650);" +
+				"           }" +
+				"       } catch(te) {}" +
+				"       doneCb(triggered);" +
+				"   }, 300);" +
+				"}" +
                 "function _superDblClick(node, doneCb) {" +
                 "   if (!node) { doneCb(false); return; }" +
                 // Scroll đến tin, đợi render xong rồi mới đo tọa độ
@@ -385,9 +429,16 @@ public class ZaloWebManager {
                 "           rect = bubble.getBoundingClientRect();" +
                 "       }" +
 
-                // Tọa độ TÂM bubble — đúng với mọi kích thước, mọi loại tin
-                "       var cx = Math.max(10, Math.min(rect.left + rect.width/2,  vw-10));" +
-                "       var cy = Math.max(10, Math.min(rect.top  + rect.height/2, vh-10));" +
+				// FIX: Click vào VÙNG TRỐNG bên phải bubble, không phải tâm bubble
+				"       var bubbleRight = rect.right;" +
+				"       var rowRight = vw - 10;" +
+				"       var cx, cy;" +
+				"       cy = Math.max(10, Math.min(rect.top + rect.height/2, vh-10));" +
+				"       if (rowRight - bubbleRight > 30) {" +
+				"           cx = Math.min(bubbleRight + 20, rowRight);" +
+				"       } else {" +
+				"           cx = Math.max(10, Math.min(rect.left + rect.width/2, vw-10));" +
+				"       }" +
 
                 "       var wrapper = node.closest('.chat-message,.message-container,[class*=message-row],[class*=chat-item],[class*=MessageItem]') || node;" +
                 "       var triggered = false;" +
@@ -504,18 +555,26 @@ public class ZaloWebManager {
                 "       } catch(apiErr) { console.log('API fail->DOM:', String(apiErr)); }" +
                 "   }" +
 
-                // ── TẦNG 2: SUPER DOUBLE CLICK + BANNER CHECK + GỬI ─────────
-                "   try {" +
-                "       _superDblClick(node, function(reactHandled) {" +
-                // Đợi banner hiện — tối đa 1800ms
-                "           _waitBanner(function(bannerOk) {" +
-                "               console.log('ZAuto: banner='+bannerOk+' reactHandler='+reactHandled);" +
-                "               _typeAndSend();" +
-                "           }, 1800);" +
-                "       });" +
-                "   } catch(domErr) {" +
-                "       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK','');" +
-                "   }" +
+                // ── TẦNG 2: SUPER DOUBLE CLICK → LONG PRESS PHÒNG BỊ → GỬI ─────────
+				"   try {" +
+				"       _superDblClick(node, function(reactHandled) {" +
+				"           _waitBanner(function(bannerOk) {" +
+				"               console.log('ZAuto: banner='+bannerOk+' reactHandler='+reactHandled);" +
+				"               if (bannerOk) {" +
+				"                   _typeAndSend();" +
+				"               } else {" +
+				"                   _longPress(node, function(lpTriggered) {" +
+				"                       _waitBanner(function(bannerOk2) {" +
+				"                           console.log('ZAuto: longPress banner='+bannerOk2);" +
+				"                           _typeAndSend();" +
+				"                       }, 1200);" +
+				"                   });" +
+				"               }" +
+				"           }, 1800);" +
+				"       });" +
+				"   } catch(domErr) {" +
+				"       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK','');" +
+				"   }" +
                 "});" +
 
                 "} catch(e) { console.log('ZAuto fatal:',String(e)); ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); }" +
@@ -864,13 +923,18 @@ public class ZaloWebManager {
             "                       if (currProps) {" +
             "                           let o = currProps.msg || currProps.message || currProps.data || currProps.item || currProps;" +
             "                           if (o && typeof o === 'object') {" +
-            "                               let foundId = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
-            "                               if (!foundId && o.timestamp) foundId = 'TS_' + o.timestamp;" + 
-            "                               if (!realMsgId && foundId && String(foundId).length > 5) { realMsgId = String(foundId); }" +
-            "                               if (!fullTxt && typeof o.content === 'string' && o.content.trim() !== '') { fullTxt = o.content; }" +
-            "                           }" +
-            "                       }" +
-            "                       node = node.return;" +
+			"                               let foundId = o.msgId || o.messageId || o.cliMsgId || o.globalMsgId;" +
+			"                               if (!foundId && o.timestamp) foundId = 'TS_' + o.timestamp;" + 
+			"                               if (!realMsgId && foundId && String(foundId).length > 5) { realMsgId = String(foundId); }" +
+			"                               if (!fullTxt && typeof o.content === 'string' && o.content.trim() !== '') { fullTxt = o.content; }" +
+			"                               if (!convId && o.fromId) { convId = String(o.fromId); }" +
+			"                               if (!convId && o.toId) { convId = String(o.toId); }" +
+			"                           }" +
+			"                           if (!convId && currProps.session && currProps.session.id) { convId = String(currProps.session.id); }" +
+			"                           if (!convId && currProps.convId) { convId = String(currProps.convId); }" +
+			"                           if (!convId && currProps.conversationId) { convId = String(currProps.conversationId); }" +
+			"                       }" +
+			"                       node = node.return;" +
             "                   }" +
             "               }" +
             "           } catch(err) {}" +
@@ -880,8 +944,8 @@ public class ZaloWebManager {
             "           }" +
             
             "           let isVoiceNode = bodyEl ? bodyEl.querySelector('[class*=audio],[class*=voice],[class*=Voice],[class*=record],[class*=AudioMessage],[class*=VoiceMsg]') : null;" +
-            "           if (!isVoiceNode && bodyEl) { let svgs = bodyEl.querySelectorAll('svg'); for (let s of svgs) { if (s.closest('[class*=audio],[class*=voice],[class*=record],[class*=Voice]')) { isVoiceNode = s; break; } } }" +
-            "           let isTimeOnly = bodyEl ? (/^[0-9]{1,2}:[0-9]{2}$/.test(msgText) || /^[0-9]{1,2}:[0-9]{2}$/.test(bodyEl.innerText.trim())) : false;" + 
+			"           if (!isVoiceNode && bodyEl) { let svgs = bodyEl.querySelectorAll('svg'); for (let s of svgs) { if (s.closest('[class*=audio],[class*=voice],[class*=record],[class*=Voice]')) { isVoiceNode = s; break; } } }" +
+			"           let isTimeOnly = (isVoiceNode && bodyEl) ? (/^[0-9]{1,2}:[0-9]{2}$/.test(msgText) || /^[0-9]{1,2}:[0-9]{2}$/.test(bodyEl.innerText.trim())) : false;" +
             "           let seconds = -1; let isVoice = false;" +
             
             "           if (isVoiceNode || isTimeOnly) {" +
@@ -923,8 +987,8 @@ public class ZaloWebManager {
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
             "               if (isVoice) {" +
-            "                   let voiceKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + msgText.replace(/%%%[-0-9]+$/, '').trim().substring(0, 30));" +
-            "                   stableId = 'VOICE_' + voiceKey;" +
+            "                   let voiceTimeKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + timeString + '_' + (Date.now() % 100000));" +
+			"                   stableId = 'VOICE_' + voiceTimeKey;" +
             "               } else {" +
             "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
             "               }" +
