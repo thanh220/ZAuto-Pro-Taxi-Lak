@@ -1244,10 +1244,12 @@ class ZAutoProApp(MDApp):
                     tts_text = ""
 
                 # Tạo khóa duy nhất chống phát lại
-                if msg_id.startswith("TIME_") or msg_id.startswith("VOICE_") or not msg_id or len(msg_id) < 4:
-                    # Dùng cache_key (chứa msg_hash) để phân biệt các tin thoại khác nhau
-                    # cùng nhóm dù không có ID thật
-                    audio_unique_key = f"{conv_id}_{cache_key}"
+                if not msg_id or len(msg_id) < 4 or msg_id.startswith("TIME_") or msg_id.startswith("VOICE_"):
+                    # Không có ID thật: dùng conv_id + cache_key + thời điểm put vào queue
+                    # cache_key chứa msg_hash nhưng tất cả tin thoại cùng nhóm đều là "[Tin nhắn thoại]"
+                    # → hash giống nhau → phải thêm timestamp tính theo phút để phân biệt
+                    import time as _t
+                    audio_unique_key = f"{conv_id}_{cache_key}_{int(_t.time()//60)}"
                 else:
                     audio_unique_key = f"{conv_id}_{msg_id}"
 
