@@ -37,9 +37,9 @@ jobs:
             ~/.cache/pip
             ~/.buildozer/android/platform/android-ndk-r25b
             ~/.buildozer/android/platform/android-sdk
-          key: ${{ runner.os }}-zauto-v57-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-zauto-v58-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-zauto-v57-
+            ${{ runner.os }}-zauto-v58-
 
       - name: Install System Packages
         run: |
@@ -55,14 +55,13 @@ jobs:
 
       - name: Install Python Packages
         run: |
-          python -m pip install --upgrade "pip==23.2.1" # ĐÃ SỬA: Đổi về 23.2.1
-          pip install \
-            "setuptools==69.5.1" \
-            "wheel==0.43.0" \
-            "Cython==0.29.36"
-          # ĐÃ SỬA: Cài buildozer trực tiếp từ master thay vì bản 1.5.0
+          # BẮT BUỘC: Hạ cấp pip về 23.1.2 (bản cuối cùng còn file RequirementInformation)
+          python -m pip install --upgrade "pip==23.1.2"
+          pip install "setuptools==68.2.2" "wheel==0.41.2" "Cython==0.29.36" "virtualenv==20.21.0"
+          
+          # BẮT BUỘC: Cài lõi python-for-android bản vá lỗi mới nhất từ Github
+          pip install https://github.com/kivy/python-for-android/archive/master.zip
           pip install https://github.com/kivy/buildozer/archive/master.zip
-          pip install virtualenv
 
       - name: Prepare Android Environment
         run: |
@@ -73,8 +72,6 @@ jobs:
         run: |
           rm -rf bin
           rm -rf ~/.buildozer
-          rm -rf /tmp/pip-*
-          # ĐÃ SỬA: Quét và xóa toàn bộ các thư mục venv cứng đầu
           find . -name "venv" -type d -exec rm -rf {} +
           find /home/runner/work -name "venv" -type d -exec rm -rf {} +
 
@@ -121,25 +118,16 @@ jobs:
         run: |
           export PATH=$PATH:~/.local/bin
           export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
-          export PYTHONPATH=""
-          export P4A_PYTHON_VERSION=3.11
-          # Upgrade pip trong venv p4a nếu tồn tại trước khi build
-          VENV_PIP=".buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv/bin/pip"
-          if [ -f "$VENV_PIP" ]; then
-            $VENV_PIP install --upgrade "pip==23.3.2" || true
-          fi
+          
+          # Ép môi trường ảo bên trong buildozer không được tự ý nâng cấp pip
+          export VIRTUALENV_PIP=23.1.2
+          
           buildozer android debug 2>&1 | tee build_full.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "====== TÓM TẮT LỖI ======"
             grep -i "error\|exception\|failed\|traceback" build_full.log | tail -50
             exit 1
           fi
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "====== TÓM TẮT LỖI ======"
-            grep -i "error\|exception\|failed\|traceback" build_full.log | tail -50
-            exit 1
-          fi
-
       - name: Verify APK
         run: |
           echo "========== APK OUTPUT =========="
