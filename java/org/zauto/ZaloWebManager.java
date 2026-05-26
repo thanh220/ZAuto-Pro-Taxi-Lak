@@ -159,114 +159,107 @@ public class ZaloWebManager {
                 // BƯỚC 0: KHÁM PHÁ WEBPACK API (GIỮ NGUYÊN TỪ BẢN CŨ)
                 // ─────────────────────────────────────────────────────────────
                 "function _discoverApi() {" +
-				"   if (window.zauto_api_hijacked && window.zMessenger && typeof window.zMessenger.sendMessage==='function') return true;" +
-				"   window.zauto_api_hijacked = false;" +
+				"   if (window.zMessenger && typeof window.zMessenger.sendMessage==='function') return true;" +
 
-				"   // ── TẦNG A: Quét webpackChunk với nhiều tên có thể ──" +
-				"   var chunkNames = ['webpackChunkzalo_web_app','webpackChunkpc_web_zalo','webpackChunknewfeed','webpackJsonp','webpackChunk'];" +
-				"   var chunks = null;" +
-				"   for (var cn=0; cn<chunkNames.length; cn++) { if (window[chunkNames[cn]]) { chunks = window[chunkNames[cn]]; break; } }" +
+				// ── DUCK TYPING helper: nhận dạng đúng object API của Zalo ──────────
+				"   var _isApi = function(obj) {" +
+				"       if (!obj || typeof obj !== 'object') return false;" +
+				// Zalo bắt buộc phải có sendMessage + (sendMsg HOẶC sendTextMessage)
+				"       return typeof obj.sendMessage==='function' && " +
+				"              (typeof obj.sendMsg==='function' || typeof obj.sendTextMessage==='function');" +
+				"   };" +
+				"   var _deepFind = function(obj) {" +
+				"       if (_isApi(obj)) { window.zMessenger=obj; return true; }" +
+				"       if (!obj || typeof obj!=='object') return false;" +
+				"       var keys=Object.keys(obj);" +
+				"       for(var i=0;i<keys.length;i++){" +
+				"           var c=obj[keys[i]];" +
+				"           if(c && typeof c==='object' && _isApi(c)){window.zMessenger=c;return true;}" +
+				"       }" +
+				"       return false;" +
+				"   };" +
 
-				"   if (chunks) {" +
-				"       try {" +
-				"           var spyId = '__zauto_spy_v9__'; var req = null;" +
-				"           var origPush = chunks.push.bind(chunks);" +
-				"           chunks.push([[spyId],{[spyId]:function(m,e,r){req=r;}},[[spyId]]]);" +
-				"           if (req && req.m) {" +
-				"               var modIds = Object.keys(req.m);" +
-				"               for (var i=0; i<modIds.length; i++) {" +
-				"                   try {" +
-				"                       var mod = req(modIds[i]);" +
-				"                       var candidates = [mod, mod&&mod.default, mod&&mod.exports, mod&&mod.MessageService, mod&&mod.messenger];" +
-				"                       for (var ci=0; ci<candidates.length; ci++) {" +
-				"                           var exp = candidates[ci];" +
-				"                           if (!exp || typeof exp !== 'object') continue;" +
-				"                           var hasSend = typeof exp.sendMessage==='function' || typeof exp.sendTextMessage==='function' || typeof exp.sendMsg==='function';" +
-				"                           if (hasSend) { window.zMessenger=exp; window.zauto_api_hijacked=true; break; }" +
-				"                       }" +
-				"                       if (window.zauto_api_hijacked) break;" +
-				"                   } catch(ex) { continue; }" +
+				// ── TẦNG 1: WEBPACK CACHE DUMP — Vét cạn RAM module đã load ─────────
+				// Kỹ thuật này bất tử trước obfuscation vì không dùng tên biến
+				"   try {" +
+				"       var wreq = window.__webpack_require__ || window.webpackRequire || null;" +
+				// Tìm mọi webpackChunk* trong window (không đoán tên cứng)
+				"       if (!wreq) {" +
+				"           var chunkKeys = Object.keys(window).filter(function(k){return k.startsWith('webpackChunk');});" +
+				"           for (var ck=0; ck<chunkKeys.length && !wreq; ck++) {" +
+				"               try { window[chunkKeys[ck]].push([[Math.random()],{},function(r){wreq=r;}]); } catch(e){}" +
+				"           }" +
+				"       }" +
+				"       if (wreq && wreq.c) {" +
+				"           var ckeys=Object.keys(wreq.c);" +
+				"           for (var j=0;j<ckeys.length;j++) {" +
+				"               var entry=wreq.c[ckeys[j]];" +
+				"               var exp=entry&&entry.exports;" +
+				"               if(exp&&(_deepFind(exp.default)||_deepFind(exp))){" +
+				"                   console.log('[ZAuto] API found in webpack cache');" +
+				"                   return true;" +
 				"               }" +
 				"           }" +
-				"       } catch(ex2) {}" +
-				"   }" +
-
-				"   // ── TẦNG B: Tìm qua __webpack_require__ trực tiếp ──" +
-				"   if (!window.zauto_api_hijacked) {" +
-				"       try {" +
-				"           var wreq = window.__webpack_require__ || window.webpackRequire;" +
-				"           if (!wreq && chunks) { chunks.push([[Date.now()],{},function(r){wreq=r;}]); }" +
-				"           if (wreq && wreq.m) {" +
-				"               for (var wid in wreq.m) {" +
-				"                   try {" +
-				"                       var wm = wreq(wid); var we = wm&&(wm.default||wm);" +
-				"                       if (we && (typeof we.sendMessage==='function'||typeof we.sendMsg==='function')) {" +
-				"                           window.zMessenger=we; window.zauto_api_hijacked=true; break;" +
-				"                       }" +
-				"                   } catch(e){}" +
-				"               }" +
+				"       }" +
+				// Fallback: quét req.m nếu cache chưa load đủ
+				"       if (wreq && wreq.m) {" +
+				"           var mkeys=Object.keys(wreq.m);" +
+				"           for (var mi=0;mi<mkeys.length;mi++){" +
+				"               try{" +
+				"                   var mm=wreq(mkeys[mi]); var me=mm&&(mm.default||mm);" +
+				"                   if(me&&_isApi(me)){window.zMessenger=me;return true;}" +
+				"               }catch(e){}" +
 				"           }" +
-				"       } catch(e2) {}" +
-				"   }" +
+				"       }" +
+				"   } catch(e1) {}" +
 
-				"   // ── TẦNG C: Đào React Fiber từ conversation store ──" +
-				"   if (!window.zauto_api_hijacked) {" +
-				"       try {" +
-				"           var storeRoots = [" +
-				"               document.getElementById('app')," +
-				"               document.querySelector('#main-app')," +
-				"               document.querySelector('[class*=chat-window]')," +
-				"               document.querySelector('[class*=MessageList]')," +
-				"               document.querySelector('[class*=conversation]')" +
-				"           ].filter(Boolean);" +
-				"           for (var ri=0; ri<storeRoots.length; ri++) {" +
-				"               var frk = Object.keys(storeRoots[ri]).find(function(k){return k.startsWith('__reactFiber')||k.startsWith('__reactContainer');});" +
-				"               if (!frk) continue;" +
-				"               var fnode = storeRoots[ri][frk]; var fdepth = 0;" +
-				"               while (fnode && fdepth < 200) {" +
-				"                   var fmp = fnode.memoizedProps;" +
-				"                   if (fmp && fmp.store && fmp.store.dispatch) {" +
-				"                       var st = fmp.store.getState ? fmp.store.getState() : null;" +
-				"                       if (st) {" +
-				"                           var skeys = ['message','messenger','chat','conversation','msg'];" +
-				"                           for (var sk=0; sk<skeys.length; sk++) {" +
-				"                               var svc = st[skeys[sk]];" +
-				"                               if (svc && typeof svc.sendMessage==='function') {" +
-				"                                   window.zMessenger=svc; window.zauto_api_hijacked=true; break;" +
-				"                               }" +
-				"                           }" +
-				"                       }" +
-				"                   }" +
-				"                   if (window.zauto_api_hijacked) break;" +
-				"                   fnode = fnode.child || fnode.sibling || (fnode.return?fnode.return.sibling:null); fdepth++;" +
+				// ── TẦNG 2: REACT FIBER / REDUX STORE HIJACK ────────────────────────
+				"   try {" +
+				"       var roots=[document.querySelector('#app'),document.querySelector('#main-app')," +
+				"                  document.querySelector('[class*=chat-window]'),document.querySelector('[class*=MessageList]')]" +
+				"                 .filter(Boolean);" +
+				"       for (var r=0;r<roots.length;r++) {" +
+				"           var rk=Object.keys(roots[r]).find(function(k){return k.startsWith('__reactFiber')||k.startsWith('__reactContainer');});" +
+				"           if (!rk) continue;" +
+				"           var nd=roots[r][rk]; var dep=0;" +
+				"           while(nd && dep<1000){" +
+				"               var props=nd.memoizedProps||nd.pendingProps;" +
+				"               if (props && props.store && typeof props.store.getState==='function') {" +
+				"                   var st=props.store.getState();" +
+				"                   if (_deepFind(st)) { console.log('[ZAuto] API found in Redux store'); return true; }" +
 				"               }" +
-				"               if (window.zauto_api_hijacked) break;" +
+				// Quét thêm memoizedState (Zustand/Context)
+				"               var ms=nd.memoizedState;" +
+				"               if (ms && ms.memoizedState && _deepFind(ms.memoizedState)) return true;" +
+				"               nd=nd.child||nd.sibling||(nd.return?nd.return.sibling:null); dep++;" +
 				"           }" +
+				"       }" +
+				"   } catch(e2) {}" +
+
+				// ── TẦNG 3: HOOK XHR + FETCH — Bắt URL thật khi Zalo tự gửi tin ────
+				// Dùng khi 2 tầng trên thất bại — lần sau Zalo gửi tin ta có URL
+				"   if (!window._zauto_hook_set) {" +
+				"       window._zauto_hook_set = true;" +
+				"       try {" +
+				"           var oXHR=window.XMLHttpRequest.prototype.open;" +
+				"           window.XMLHttpRequest.prototype.open=function(method,url){" +
+				"               if(typeof url==='string'&&(url.includes('sendmsg')||url.includes('send_msg')||url.includes('message/send')))" +
+				"                   window._zauto_send_url=url;" +
+				"               return oXHR.apply(this,arguments);" +
+				"           };" +
+				"           var oFetch=window.fetch;" +
+				"           window.fetch=function(input,init){" +
+				"               var url=typeof input==='string'?input:(input&&input.url||'');" +
+				"               if(url.includes('sendmsg')||url.includes('send_msg')||url.includes('message/send')){" +
+				"                   window._zauto_send_url=url;" +
+				"                   if(init&&init.body){try{window._zauto_last_payload=JSON.parse(init.body);}catch(e){}}" +
+				"               }" +
+				"               return oFetch.apply(this,arguments);" +
+				"           };" +
 				"       } catch(e3) {}" +
 				"   }" +
 
-				"   // ── TẦNG D: Hook XMLHttpRequest / fetch để bắt API thật ──" +
-				"   if (!window.zauto_api_hijacked && !window._zauto_hook_set) {" +
-				"       window._zauto_hook_set = true;" +
-				"       var origXHR = window.XMLHttpRequest.prototype.open;" +
-				"       window.XMLHttpRequest.prototype.open = function(method, url) {" +
-				"           if (typeof url==='string' && url.includes('sendmsg')) {" +
-				"               window._zauto_send_url = url;" +
-				"           }" +
-				"           return origXHR.apply(this, arguments);" +
-				"       };" +
-				"       var origFetch = window.fetch;" +
-				"       window.fetch = function(input, init) {" +
-				"           var url = typeof input==='string' ? input : (input&&input.url||'');" +
-				"           if (url.includes('sendmsg') || url.includes('send_msg') || url.includes('message/send')) {" +
-				"               window._zauto_send_url = url;" +
-				"               if (init && init.body) { try { window._zauto_last_payload = JSON.parse(init.body); } catch(e){} }" +
-				"           }" +
-				"           return origFetch.apply(this, arguments);" +
-				"       };" +
-				"   }" +
-
-				"   return !!window.zauto_api_hijacked;" +
+				"   return !!window.zMessenger;" +
 				"}" +
 				"_discoverApi();" +
 
@@ -808,8 +801,40 @@ public class ZaloWebManager {
                 "} catch(e) { console.log('ZAuto fatal:',String(e)); ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); }" +
                 "})();";
 
-                // KẾT THÚC CHUỖI JAVASCRIPT VÀ GỬI XUỐNG WEBVIEW
-                hiddenWebView.evaluateJavascript(jsCode, null);
+                // Tạm thời đưa WebView vào viewport để JS click/touch hoạt động
+                // (chỉ cần 1x1px visible là đủ — không cần full screen)
+                try {
+                    ViewGroup.LayoutParams lp = webLayout.getLayoutParams();
+                    if (lp instanceof FrameLayout.LayoutParams) {
+                        FrameLayout.LayoutParams flp = (FrameLayout.LayoutParams) lp;
+                        int oldLeft = flp.leftMargin;
+                        int oldTop  = flp.topMargin;
+                        flp.leftMargin = 0;
+                        flp.topMargin  = 0;
+                        webLayout.setLayoutParams(flp);
+                        webLayout.requestLayout();
+                        hiddenWebView.bringToFront();
+                        hiddenWebView.requestFocus();
+
+                        // Chạy JS sau 150ms (đủ để Android layout xong)
+                        hiddenWebView.postDelayed(() -> {
+                            hiddenWebView.evaluateJavascript(jsCode, null);
+                            // Ẩn lại sau 8 giây (đủ cho toàn bộ flow click+send xong)
+                            hiddenWebView.postDelayed(() -> {
+                                try {
+                                    flp.leftMargin = oldLeft;
+                                    flp.topMargin  = oldTop;
+                                    webLayout.setLayoutParams(flp);
+                                    webLayout.requestLayout();
+                                } catch (Exception ignored) {}
+                            }, 8000);
+                        }, 150);
+                    } else {
+                        hiddenWebView.evaluateJavascript(jsCode, null);
+                    }
+                } catch (Exception layoutEx) {
+                    hiddenWebView.evaluateJavascript(jsCode, null);
+                }
             } catch (Exception e) {
                 Log.e(TAG, "Reply Engine Error", e);
             }
@@ -1002,8 +1027,9 @@ public class ZaloWebManager {
 
 				activity.addContentView(webLayout, rootParams);
 
-                // Chỉ bật visible cho WebView, không gọi bringToFront
                 hiddenWebView.setVisibility(View.VISIBLE);
+                hiddenWebView.bringToFront();
+                hiddenWebView.requestFocus();
 
                 // KHỞI TẠO GIỌNG NÓI TIẾNG VIỆT CÓ BẢO VỆ FALLBACK
                 if (tts == null) {
@@ -1370,7 +1396,6 @@ public class ZaloWebManager {
                         (FrameLayout.LayoutParams) webLayout.getLayoutParams();
                 if (!visible) {
                     webLayout.setAlpha(0.01f);
-                    webLayout.setTranslationZ(-100f);
                     params.leftMargin = -2000;
                     params.topMargin = -2000;
                     params.width = 1080;
