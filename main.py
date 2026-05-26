@@ -1724,9 +1724,33 @@ class ZAutoProApp(MDApp):
                 PythonActivity = autoclass('org.kivy.android.PythonActivity')
                 current_time_str = time.strftime('%H:%M')
 
-                # BƯỚC 2: Gọi JS âm thầm — WebView luôn chạy ngầm dù tab nào đang hiện
-                # KHÔNG cần switch_tab vì hiddenWebView vẫn sống và JS evaluateJavascript
-                # hoạt động bình thường kể cả khi WebView đang ở leftMargin=-2000 (ẩn)
+                # BƯỚC 2: Switch sang tab Zalo để WebView có focus nhận touch/click event
+                # (cần thiết cho fallback click/longpress khi API Webpack thất bại)
+                try:
+                    self.root.ids.bottom_nav.switch_tab('tab_zalo')
+                except Exception as e_tab:
+                    logger.warning(f"switch_tab lỗi (bỏ qua): {e_tab}")
+
+                # BƯỚC 3: Gọi sendReply sau 300ms để tab kịp switch xong
+                import threading
+                def _do_send_delayed():
+                    import time as _time
+                    _time.sleep(0.3)
+                    try:
+                        from jnius import autoclass as _ac2
+                        _PythonActivity = _ac2('org.kivy.android.PythonActivity')
+                        _ac2('org.zauto.ZaloWebManager').sendReplyToSpecificMessage(
+                            _PythonActivity.mActivity,
+                            payload.get('conversation_id', ''),
+                            payload.get('msg_id', ''),
+                            payload.get('reply_text', ''),
+                            payload.get('msg_content', ''),
+                            _time.strftime('%H:%M')
+                        )
+                        logger.info("Đã gửi lệnh chốt Zalo (có switch_tab + focus)")
+                    except Exception as e_send:
+                        logger.error(f"Lỗi _do_send_delayed: {e_send}")
+                threading.Thread(target=_do_send_delayed, daemon=True).start()
                 try:
                     autoclass('org.zauto.ZaloWebManager').sendReplyToSpecificMessage(
                         PythonActivity.mActivity,
