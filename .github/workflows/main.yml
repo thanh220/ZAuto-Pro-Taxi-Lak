@@ -12,6 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # --- THÊM BƯỚC NÀY ĐỂ ÉP GITHUB ACTIONS HOST DÙNG PYTHON 3.11.4 ---
+      - name: Set up Python 3.11.4
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.4'
+
       - name: Install System Dependencies
         run: |
           sudo apt update
