@@ -267,7 +267,19 @@ public class ZaloWebManager {
                 // BƯỚC 1: MỞ ĐÚNG NHÓM (GIỮ NGUYÊN + TĂNG TIMEOUT 3500ms)
                 // ─────────────────────────────────────────────────────────────
                 "function _openGroup(cb) {" +
-                "   if (!_convId || _convId==='') { cb(true); return; }" +
+				"   if (!_convId || _convId==='') {" +
+				// Không có convId — kiểm tra xem đang mở đúng nhóm chưa bằng _search (tên nhóm)
+				"       if (_search && _search.length > 1) {" +
+				"           var nameEls = document.querySelectorAll('.conv-item-title__name,[class*=conv-name],[class*=group-name]');" +
+				"           for (var ni=0; ni<nameEls.length; ni++) {" +
+				"               if ((nameEls[ni].textContent||'').trim().includes(_search.substring(0,15))) {" +
+				"                   var convItem2 = nameEls[ni].closest('.msg-item,.conv-item');" +
+				"                   if (convItem2) { convItem2.click(); setTimeout(function(){cb(true);},2000); return; }" +
+				"               }" +
+				"           }" +
+				"       }" +
+				"       cb(true); return;" +
+				"   }" +
                 "   var item = document.querySelector('.msg-item[anim-data-id='+_convId+'] .conv-item')" +
                 "           || document.querySelector('.msg-item[anim-data-id='+_convId+']')" +
                 "           || document.querySelector('[id*='+_convId+']');" +
@@ -444,12 +456,21 @@ public class ZaloWebManager {
 				"            || document.querySelector('.chat-input');" +
 				"   if (!input) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); return; }" +
 				"   input.setAttribute('readonly','true');" +
-				// KHÔNG focus() — readonly trick đủ để React nhận value mà không kéo bàn phím lên
+				"   input.focus();" +
 				"   input.removeAttribute('readonly');" +
+				// Xóa toàn bộ text cũ bằng selectAll trước
+				"   try { document.execCommand('selectAll',false,null); document.execCommand('delete',false,null); } catch(ex) {}" +
 				"   input.innerHTML = '';" +
-                // 3 cách điền text — dùng cả 3 để đảm bảo React nhận được
-                "   try { document.execCommand('insertText',false,_reply); } catch(ex) {}" +
-                "   if (!input.textContent.trim()) { input.innerHTML = _reply; }" +
+				// Ghi text mới
+				"   try { document.execCommand('insertText',false,_reply); } catch(ex) {}" +
+				// Fallback nếu execCommand không hoạt động
+				"   if (!input.textContent.trim() || input.textContent.trim() !== _reply) {" +
+				"       input.innerHTML = '';" +
+				"       input.textContent = _reply;" +
+				// Trigger React bằng cách set value qua native setter
+				"       var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype,'innerHTML') || Object.getOwnPropertyDescriptor(window.Element.prototype,'innerHTML');" +
+				"       if (nativeInputValueSetter && nativeInputValueSetter.set) { nativeInputValueSetter.set.call(input, _reply); }" +
+				"   }" +
                 "   input.dispatchEvent(new Event('input',{bubbles:true}));" +
 				"   input.dispatchEvent(new Event('change',{bubbles:true}));" +
 				// Tầng 1: blur sau khi điền
@@ -741,9 +762,9 @@ public class ZaloWebManager {
                 "               el.dispatchEvent(new MouseEvent('dblclick', {bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,buttons:0,detail:2}));" +
                 "           }, 60);" +
                 "       };" +
-                // Bắn vào cả bubble lẫn wrapper để đảm bảo React event bubbling
-                "       fireMouseSeq(bubble);" +
-                "       setTimeout(function(){ fireMouseSeq(wrapper); }, 30);" +
+                // Bắn vào row tại tọa độ vùng trống đã tính (cx,cy) — đây là cách Zalo Web nhận double-click reply
+				"       fireMouseSeq(row);" +
+				"       setTimeout(function(){ fireMouseSeq(bubble); }, 30);" +
 
                 // ── CHIẾN LƯỢC C: Touch Events đôi (Android WebView native) ──
                 // Android đôi khi ưu tiên touch events hơn mouse events
