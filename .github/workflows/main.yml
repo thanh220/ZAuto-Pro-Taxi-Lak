@@ -35,11 +35,11 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.cache/pip
-            .buildozer/android/platform/android-ndk-r25b
-            .buildozer/android/platform/android-sdk
-          key: ${{ runner.os }}-zauto-v55-${{ hashFiles('buildozer.spec') }}
+            ~/.buildozer/android/platform/android-ndk-r25b
+            ~/.buildozer/android/platform/android-sdk
+          key: ${{ runner.os }}-zauto-v56-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-zauto-v55-
+            ${{ runner.os }}-zauto-v56-
 
       - name: Install System Packages
         run: |
@@ -69,10 +69,12 @@ jobs:
 
       - name: Clean Local Workspace
         run: |
-          rm -rf .buildozer
           rm -rf bin
           rm -rf ~/.buildozer
           rm -rf /tmp/pip-*
+          # Xóa chỉ venv bị corrupt, giữ lại NDK/SDK đã cache để tiết kiệm thời gian
+          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
+          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/other_builds
 
       - name: Ensure res/xml/file_paths.xml exists
         run: |
@@ -119,7 +121,17 @@ jobs:
           export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
           export PYTHONPATH=""
           export P4A_PYTHON_VERSION=3.11
+          # Upgrade pip trong venv p4a nếu tồn tại trước khi build
+          VENV_PIP=".buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv/bin/pip"
+          if [ -f "$VENV_PIP" ]; then
+            $VENV_PIP install --upgrade "pip==23.3.2" || true
+          fi
           buildozer android debug 2>&1 | tee build_full.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "====== TÓM TẮT LỖI ======"
+            grep -i "error\|exception\|failed\|traceback" build_full.log | tail -50
+            exit 1
+          fi
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "====== TÓM TẮT LỖI ======"
             grep -i "error\|exception\|failed\|traceback" build_full.log | tail -50
