@@ -1224,16 +1224,20 @@ class ZAutoProApp(MDApp):
         """Worker tuần tự: Đọc TTS thông báo nhóm → Play tin thoại → Chờ → Tin tiếp theo.
         Mỗi tin chỉ phát 1 lần. Nhiều nhóm/nhiều tin xếp hàng lần lượt không chèn nhau.
         """
-        if not hasattr(self, 'audio_seen_set'):
-            self.audio_seen_set = set()
-        if not hasattr(self, 'last_audio_clean_time'):
-            self.last_audio_clean_time = time.time()
+        # Đổi set() thành dict() để lưu kèm thời gian nhận tin
+        if not hasattr(self, 'audio_seen_dict'):
+            self.audio_seen_dict = {}
+            
+        CACHE_TTL = 3600  # Thời gian sống của tin nhắn thoại trong RAM (3600 giây = 1 tiếng)
 
         while getattr(self, 'app_running', True):
             try:
-                if time.time() - self.last_audio_clean_time > 3600:
-                    self.audio_seen_set.clear()
-                    self.last_audio_clean_time = time.time()
+                current_ts = time.time()
+                
+                # BƯỚC DỌN RÁC (GARBAGE COLLECTION): Chỉ xóa các tin đã quá 1 tiếng
+                keys_to_delete = [k for k, ts in self.audio_seen_dict.items() if current_ts - ts > CACHE_TTL]
+                for k in keys_to_delete:
+                    del self.audio_seen_dict[k]
 
                 # Nhận đủ 5 tham số; tương thích ngược với tuple 4 phần tử cũ
                 item = self.audio_queue.get(timeout=1.0)
@@ -1243,22 +1247,20 @@ class ZAutoProApp(MDApp):
                     conv_id, msg_id, cache_key, duration = item
                     tts_text = ""
 
-                # Tạo khóa duy nhất chống phát lại
+                # Tạo khóa duy nhất chống phát lại (Chính xác đến từng giây)
                 if not msg_id or len(msg_id) < 4 or msg_id.startswith("TIME_") or msg_id.startswith("VOICE_"):
-                    # Không có ID thật: dùng conv_id + cache_key + thời điểm put vào queue
-                    # cache_key chứa msg_hash nhưng tất cả tin thoại cùng nhóm đều là "[Tin nhắn thoại]"
-                    # → hash giống nhau → phải thêm timestamp tính theo phút để phân biệt
-                    import time as _t
-                    audio_unique_key = f"{conv_id}_{cache_key}_{int(_t.time()//60)}"
+                    from datetime import datetime
+                    time_str = datetime.now().strftime("%d%m%Y_%H%M%S")
+                    audio_unique_key = f"VOICE_{conv_id}_{time_str}"
                 else:
                     audio_unique_key = f"{conv_id}_{msg_id}"
 
-                if audio_unique_key in self.audio_seen_set:
+                if audio_unique_key in self.audio_seen_dict:
                     self.audio_queue.task_done()
                     continue  # Đã phát rồi, bỏ qua
 
-                # Đánh dấu ngay trước khi phát để tránh race condition
-                self.audio_seen_set.add(audio_unique_key)
+                # Đánh dấu ngay trước khi phát và ghi lại mốc thời gian
+                self.audio_seen_dict[audio_unique_key] = current_ts
 
                 if platform == 'android' and getattr(self, 'is_linked', False):
                     from jnius import autoclass
