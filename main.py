@@ -1751,18 +1751,6 @@ class ZAutoProApp(MDApp):
                     except Exception as e_send:
                         logger.error(f"Lỗi _do_send_delayed: {e_send}")
                 threading.Thread(target=_do_send_delayed, daemon=True).start()
-                try:
-                    autoclass('org.zauto.ZaloWebManager').sendReplyToSpecificMessage(
-                        PythonActivity.mActivity,
-                        payload.get('conversation_id', ''),
-                        payload.get('msg_id', ''),
-                        payload.get('reply_text', ''),
-                        payload.get('msg_content', ''),
-                        current_time_str
-                    )
-                    logger.info("Đã gửi lệnh chốt Zalo âm thầm (không nhảy tab)")
-                except Exception as e2:
-                    logger.error(f"Lỗi _do_send: {traceback.format_exc()}")
 
         except Exception as e:
             logger.error(f"Lỗi _execute_reply_safe: {traceback.format_exc()}")
