@@ -22,7 +22,7 @@ presplash.color = #FFFFFF
 # PYTHON / KIVY
 # =====================================================
 # ĐÃ KHÓA CỨNG PYTHON 3.11.4 ĐỂ CHỐNG LỖI SERVER
-requirements = python3==3.11.4,hostpython3==3.11.4,kivy==2.2.1,kivymd==1.1.1,pyjnius,requests,setuptools,pip==23.3.2
+rerequirements = python3==3.11.4,hostpython3==3.11.4,kivy==2.2.1,kivymd==1.1.1,pyjnius,requests,setuptools==69.5.1,pip==23.3.2
 
 # =====================================================
 # LOG
