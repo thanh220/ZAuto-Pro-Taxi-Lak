@@ -37,9 +37,9 @@ jobs:
             ~/.cache/pip
             ~/.buildozer/android/platform/android-ndk-r25b
             ~/.buildozer/android/platform/android-sdk
-          key: ${{ runner.os }}-zauto-v56-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-zauto-v57-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-zauto-v56-
+            ${{ runner.os }}-zauto-v57-
 
       - name: Install System Packages
         run: |
@@ -55,12 +55,14 @@ jobs:
 
       - name: Install Python Packages
         run: |
-          python -m pip install --upgrade "pip==23.3.2"
+          python -m pip install --upgrade "pip==23.2.1" # ĐÃ SỬA: Đổi về 23.2.1
           pip install \
             "setuptools==69.5.1" \
             "wheel==0.43.0" \
-            "Cython==0.29.36" \
-            "buildozer==1.5.0"
+            "Cython==0.29.36"
+          # ĐÃ SỬA: Cài buildozer trực tiếp từ master thay vì bản 1.5.0
+          pip install https://github.com/kivy/buildozer/archive/master.zip
+          pip install virtualenv
 
       - name: Prepare Android Environment
         run: |
@@ -72,9 +74,9 @@ jobs:
           rm -rf bin
           rm -rf ~/.buildozer
           rm -rf /tmp/pip-*
-          # Xóa chỉ venv bị corrupt, giữ lại NDK/SDK đã cache để tiết kiệm thời gian
-          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
-          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/other_builds
+          # ĐÃ SỬA: Quét và xóa toàn bộ các thư mục venv cứng đầu
+          find . -name "venv" -type d -exec rm -rf {} +
+          find /home/runner/work -name "venv" -type d -exec rm -rf {} +
 
       - name: Ensure res/xml/file_paths.xml exists
         run: |
