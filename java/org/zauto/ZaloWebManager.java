@@ -310,52 +310,83 @@ public class ZaloWebManager {
 				"   var node = null;" +
 				"   var isVoice = _search.toLowerCase().includes('tin nh\\u1eafn tho\\u1ea1i')||_search.toLowerCase().includes('[tin nh\\u1eafn tho\\u1ea1i]')||_search.toLowerCase().includes('voice')||_search.toLowerCase().includes('audio');" +
 
-				// Ưu tiên 1: ID cứng — chỉ áp dụng cho tin TEXT có ID thật
-				"   if (!isVoice && _targetId && _targetId.length>3 && !_targetId.startsWith('TIME_') && !_targetId.startsWith('VIRTUAL_') && !_targetId.startsWith('CONTENT_') && !_targetId.startsWith('CACHE_') && !_targetId.startsWith('VOICE_')) {" +
-				"       node = document.querySelector('[id=\"bb_msg_id_'+_targetId+'\"]')" +
-				"           || document.querySelector('[data-msg-id=\"'+_targetId+'\"]')" +
-				"           || document.querySelector('div[id*=\"'+_targetId+'\"]');" +
+				// ── ƯU TIÊN 0: data-qid parse — nguồn vàng chứa msgId thật ──────────
+				// Format: "senderId@convId_msgId_groupId"
+				"   var _parseQid = function(el) {" +
+				"       var qv = el && el.getAttribute && el.getAttribute('data-qid');" +
+				"       if (!qv) return null;" +
+				"       var at = qv.indexOf('@'); var parts = qv.split('_');" +
+				"       if (parts.length < 2) return null;" +
+				"       var afterAt = at >= 0 ? qv.substring(at+1) : qv;" +
+				"       var subParts = afterAt.split('_');" +
+				"       return { msgId: subParts[1]||parts[1]||'', senderId: at>=0 ? qv.substring(0,at) : '', convId: subParts[0]||'', groupId: subParts[2]||'' };" +
+				"   };" +
+
+				// Tìm tất cả [data-qid] rồi match với _targetId hoặc _convId
+				"   if (_targetId && _targetId.length > 4 && !_targetId.startsWith('TIME_') && !_targetId.startsWith('VIRTUAL_')) {" +
+				"       var qframes = document.querySelectorAll('[data-qid]');" +
+				"       for (var qi=0; qi<qframes.length; qi++) {" +
+				"           var qp = _parseQid(qframes[qi]);" +
+				"           if (qp && qp.msgId === _targetId) { node = qframes[qi]; break; }" +
+				// Fallback: includes check
+				"           if (!node && (qframes[qi].getAttribute('data-qid')||'').includes(_targetId)) { node = qframes[qi]; break; }" +
+				"       }" +
+				"   }" +
+
+				// ── ƯU TIÊN 1: message-frame_[convId] — ID thực của Zalo Web ────────
+				// Zalo Web dùng id="message-frame_[convId]" KHÔNG PHẢI bb_msg_id
+				"   if (!node && _convId && _convId.length > 3) {" +
+				"       node = document.querySelector('#message-frame_'+_convId)" +
+				"           || document.querySelector('[id=\"message-frame_'+_convId+'\"]');" +
+				// Nếu có nhiều tin trong nhóm, lấy tin CUỐI CÙNG của convId đó
 				"       if (!node) {" +
-				"           var frames=document.querySelectorAll('[data-qid]');" +
-				"           for (var fi=0;fi<frames.length;fi++) {" +
-				"               if ((frames[fi].getAttribute('data-qid')||'').includes(_targetId)){node=frames[fi];break;}" +
+				"           var mframes = document.querySelectorAll('[id^=\"message-frame_\"]');" +
+				"           for (var mfi=mframes.length-1; mfi>=0; mfi--) {" +
+				"               if (mframes[mfi].id === 'message-frame_'+_convId) { node=mframes[mfi]; break; }" +
 				"           }" +
 				"       }" +
 				"   }" +
 
-				// Ưu tiên 2: Tin THOẠI — tìm đúng BONG BÓNG audio nhỏ nhất, không phải container cha
+				// ── ƯU TIÊN 2: text-mCntr_[senderId]-[convId]-[msgId]-[groupId] ─────
+				// Format id: "text-mCntr_senderId-convId-msgId-groupId"
+				"   if (!node && _targetId && _targetId.length > 4) {" +
+				"       var mCntrs = document.querySelectorAll('[id^=\"text-mCntr_\"]');" +
+				"       for (var tci=0; tci<mCntrs.length; tci++) {" +
+				"           if ((mCntrs[tci].id||'').includes(_targetId)) { node = mCntrs[tci].closest('[data-qid],[id^=\"message-frame_\"]') || mCntrs[tci]; break; }" +
+				"       }" +
+				"   }" +
+
+				// ── ƯU TIÊN 3: Tin THOẠI — tìm theo class audio/voice ───────────────
 				"   if (!node && isVoice) {" +
-				// Tìm tất cả element audio/voice trong vùng chat
 				"       var voiceBubbles = document.querySelectorAll('[class*=audio],[class*=voice-msg],[class*=VoiceMsg],[class*=AudioMessage],[class*=v-audio],.icon-voice,.ico-voice');" +
 				"       if (voiceBubbles.length > 0) {" +
-				"           node = voiceBubbles[voiceBubbles.length - 1];" +
-				// Đi ngược lên tìm container tin nhắn thật (cha gần nhất có id hoặc data-msg-id)
-				"           var msgContainer = node.closest('[id^=msg_],[id^=msg-],[id^=bb_msg_id_],[data-msg-id],.chat-bubble,.message-bubble,[class*=chat-message]');" +
-				"           if (msgContainer) node = msgContainer;" +
+				"           node = voiceBubbles[voiceBubbles.length-1];" +
+				"           var vc = node.closest('[data-qid],[id^=\"message-frame_\"],[id^=msg_],[id^=msg-],[data-msg-id],.chat-bubble,.message-bubble,[class*=chat-message]');" +
+				"           if (vc) node = vc;" +
 				"       }" +
-				// Fallback voice: tìm trong toàn bộ chat-item chứa audio HTML
 				"       if (!node) {" +
-				"           var allItems = document.querySelectorAll('div[id^=msg_],div[id^=msg-],.chat-bubble,[class*=message-bubble],.chat-item');" +
-				"           for (var vi=allItems.length-1;vi>=0;vi--) {" +
+				"           var allItems = document.querySelectorAll('[id^=\"message-frame_\"],[data-qid],[id^=msg_],[id^=msg-],.chat-bubble,.chat-item');" +
+				"           for (var vi=allItems.length-1; vi>=0; vi--) {" +
 				"               var vhtml=(allItems[vi].innerHTML||'').toLowerCase();" +
 				"               if (vhtml.includes('ico-voice')||vhtml.includes('v-audio')||vhtml.includes('fa-playcircle')||vhtml.includes('audio-time')||vhtml.includes('audio-duration')) { node=allItems[vi]; break; }" +
 				"           }" +
 				"       }" +
 				"   }" +
 
-				// Ưu tiên 3: Tin TEXT — tìm theo nội dung
-				"   if (!node && !isVoice && _search.length>2) {" +
-				"       var allMsgs=document.querySelectorAll('div[id^=msg_],div[id^=msg-],.chat-bubble,[class*=message-bubble],.chat-item');" +
-				"       for (var i=allMsgs.length-1;i>=0;i--) {" +
-				"           if ((allMsgs[i].innerText||allMsgs[i].textContent||'').includes(_search)){node=allMsgs[i];break;}" +
+				// ── ƯU TIÊN 4: Tin TEXT — tìm theo nội dung _search ─────────────────
+				"   if (!node && !isVoice && _search && _search.length > 2) {" +
+				"       var allMsgs = document.querySelectorAll('[data-qid],[id^=\"message-frame_\"],[id^=msg_],[id^=msg-],.chat-bubble,.chat-item');" +
+				"       for (var smi=allMsgs.length-1; smi>=0; smi--) {" +
+				"           if ((allMsgs[smi].innerText||allMsgs[smi].textContent||'').includes(_search)) { node=allMsgs[smi]; break; }" +
 				"       }" +
 				"   }" +
 
-				// Fallback cuối: tin cuối cùng trong chat
+				// ── FALLBACK: tin cuối cùng trong chat ──────────────────────────────
 				"   if (!node) {" +
-				"       var last=document.querySelectorAll('div[id^=msg_],div[id^=msg-],.chat-bubble,.chat-item');" +
-				"       if (last.length>0) node=last[last.length-1];" +
+				"       var lasts = document.querySelectorAll('[data-qid],[id^=\"message-frame_\"],[id^=msg_],[id^=msg-],.chat-bubble,.chat-item');" +
+				"       if (lasts.length > 0) node = lasts[lasts.length-1];" +
 				"   }" +
+
 				"   return node;" +
 				"}" +
 
@@ -364,10 +395,58 @@ public class ZaloWebManager {
                 // (GIỮ NGUYÊN TẦNG 0 + FIBER ĐI NGƯỢC 10 TẦNG + QUÉT CON)
                 // ─────────────────────────────────────────────────────────────
                 "function _extractObj(node) {" +
-                "   var res = {id: _targetId, obj: null};" +
-                "   if (!node) return res;" +
-                // Đi ngược 10 tầng fiber.return
-                "   var rk=Object.keys(node).find(k=>k.startsWith('__reactFiber')||k.startsWith('__reactProps'));" +
+				"   var res = {id: _targetId, obj: null};" +
+				"   if (!node) return res;" +
+
+				// ── TẦNG 0A: Cache lookup ───────
+				"   if (_targetId && _targetId.length>4 && !_targetId.startsWith('TIME_') && !_targetId.startsWith('VIRTUAL_')) {" +
+				"       var cached = window._zauto_msg_cache && window._zauto_msg_cache[_targetId];" +
+				"       if (cached) { res.id=cached.globalMsgId||cached.msgId||_targetId; res.obj=cached; return res; }" +
+				"   }" +
+
+				// ── TẦNG 0B: Parse data-qid trực tiếp ─────────────
+				"   var qEl = (node && node.getAttribute && node.getAttribute('data-qid')) ? node :" +
+				"             (node && node.closest('[data-qid]')) || (node && node.querySelector('[data-qid]'));" +
+				"   var qidRaw = qEl && qEl.getAttribute && qEl.getAttribute('data-qid');" +
+				"   if (qidRaw) {" +
+				"       var atIdx = qidRaw.indexOf('@');" +
+				"       var senderId = atIdx >= 0 ? qidRaw.substring(0, atIdx) : '';" +
+				"       var afterAt  = atIdx >= 0 ? qidRaw.substring(atIdx+1) : qidRaw;" +
+				"       var qParts   = afterAt.split('_');" +
+				"       var qConvId  = qParts[0] || _convId;" +
+				"       var qMsgId   = qParts[1] || '';" +
+				"       var qGroupId = qParts[2] || '';" +
+				"       if (qMsgId && qMsgId.length > 4) {" +
+				"           res.id = qMsgId;" +
+				"           var textEl = node && (" +
+				"               node.querySelector('[data-component=\"text-container\"] .text') ||" +
+				"               node.querySelector('[data-component=\"text-container\"] span') ||" +
+				"               node.querySelector('.text-message__container span.text') ||" +
+				"               node.querySelector('[class*=text-message] span') ||" +
+				"               node.querySelector('span.text')" +
+				"           );" +
+				"           var msgText = textEl ? textEl.textContent.trim() : _search;" +
+				"           res.obj = {" +
+				"               globalMsgId : qMsgId," +
+				"               msgId       : qMsgId," +
+				"               cliMsgId    : qMsgId," +
+				"               ownerId     : senderId," +
+				"               senderId    : senderId," +
+				"               uid         : senderId," +
+				"               convId      : qConvId," +
+				"               groupId     : qGroupId," +
+				"               msg         : msgText," +
+				"               content     : msgText," +
+				"               text        : msgText," +
+				"               type        : 1" +
+				"           };" +
+				"           if (window._zauto_msg_cache) window._zauto_msg_cache[qMsgId] = res.obj;" +
+				"           return res;" +
+				"       }" +
+				"   }" +
+
+				// Đi ngược 10 tầng fiber.return
+				"   var rk=Object.keys(node).find(k=>k.startsWith('__reactFiber')||k.startsWith('__reactProps'));" +
                 "   if (rk && node[rk]) {" +
                 "       var fn=node[rk]; var step=0;" +
                 "       while(fn && step<10) {" +
@@ -1322,14 +1401,25 @@ public class ZaloWebManager {
             "       }" +
             "       if(window.zauto_sidebar_observer) window.zauto_sidebar_observer.disconnect();" +
             "       window.zauto_sidebar_observer = new MutationObserver(mutations => {" +
-            "           mutations.forEach(m => {" +
-            "               try {" +
-            "                   let targetNode = m.target.nodeType === 3 ? m.target.parentNode : m.target;" +
-            "                   let msgItem = targetNode.closest('.msg-item');" +
-            "                   if(msgItem) scanConvItem(msgItem);" +
-            "               } catch(e) {}" +
-            "           });" +
-            "       });" +
+			"           mutations.forEach(m => {" +
+			"               try {" +
+			"                   let targetNode = m.target.nodeType === 3 ? m.target.parentNode : m.target;" +
+			"                   let msgItem = targetNode.closest('.msg-item');" +
+			"                   if(msgItem) scanConvItem(msgItem);" +
+			"                   if (m.addedNodes && m.addedNodes.length > 0) {" +
+			"                       m.addedNodes.forEach(nd2 => {" +
+			"                           if (nd2.nodeType !== 1) return;" +
+			"                           var isMsg = (nd2.id && (nd2.id.startsWith('msg')||nd2.id.startsWith('message-frame_'))) || nd2.hasAttribute('data-qid') ||" +
+			"                                       nd2.classList.contains('msg-item') || nd2.querySelector('[data-qid],[id^=\"message-frame_\"],[id^=msg_],[id^=msg-]');" +
+			"                           if (isMsg) {" +
+			"                               let mi2 = nd2.closest('.msg-item') || nd2;" +
+			"                               if (mi2) scanConvItem(mi2);" +
+			"                           }" +
+			"                       });" +
+			"                   }" +
+			"               } catch(e) {}" +
+			"           });" +
+			"       });" +
             "       window.zauto_sidebar_observer.observe(container, { childList: true, subtree: true, characterData: true });" +
             "       document.querySelectorAll('.msg-item').forEach(scanConvItem);" +
             "       collectGroups();" +
