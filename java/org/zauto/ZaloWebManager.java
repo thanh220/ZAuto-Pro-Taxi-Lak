@@ -1242,7 +1242,9 @@ public class ZaloWebManager {
             "           }" +
 
             "           let timeEl = convItem.querySelector('.conv-item-title__time, [class*=time]');" +
-            "           let timeString = timeEl ? (timeEl.textContent || '').trim() : '';" +
+			"           let timeString = timeEl ? (timeEl.textContent || '').trim() : '';" +
+			"           let senderEl = msgItemEl ? (msgItemEl.querySelector('.sender-name,[class*=sender],[class*=author],[class*=from-name]') || msgItemEl.querySelector('[class*=conv-item-title__name]')) : null;" +
+			"           let senderName = senderEl ? (senderEl.textContent || '').trim().substring(0, 20) : '';" +
 
             // =========================================================================
             // FIX LỖI LẶP TIN: Dùng stableId cố định, không phụ thuộc vào đồng hồ TIME_
@@ -1253,7 +1255,7 @@ public class ZaloWebManager {
             "           } else {" +
             "               let contentForHash = msgText.replace(/%%%[-0-9]+$/, '').trim();" +
             "               if (isVoice) {" +
-            "                   let voiceTimeKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + timeString);" +
+            "                   let voiceTimeKey = (realMsgId && realMsgId.length > 3 && !realMsgId.startsWith('TIME_') && !realMsgId.startsWith('TS_')) ? realMsgId : ('V_' + convId + '_' + timeString + '_' + senderName);" +
 			"                   stableId = 'VOICE_' + voiceTimeKey;" +
             "               } else {" +
             "                   stableId = 'CONTENT_' + convId + '_' + contentForHash.substring(0, 60);" +
