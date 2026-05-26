@@ -1244,8 +1244,10 @@ class ZAutoProApp(MDApp):
                     tts_text = ""
 
                 # Tạo khóa duy nhất chống phát lại
-                if msg_id.startswith("TIME_") or not msg_id or len(msg_id) < 4:
-                    audio_unique_key = f"{conv_id}_{msg_id}_dur{duration}"
+                if msg_id.startswith("TIME_") or msg_id.startswith("VOICE_") or not msg_id or len(msg_id) < 4:
+                    # Dùng cache_key (chứa msg_hash) để phân biệt các tin thoại khác nhau
+                    # cùng nhóm dù không có ID thật
+                    audio_unique_key = f"{conv_id}_{cache_key}"
                 else:
                     audio_unique_key = f"{conv_id}_{msg_id}"
 
@@ -1336,14 +1338,24 @@ class ZAutoProApp(MDApp):
                 if (msg_id == last_id or both_time_fallback) and msg_hash == last_hash:
                     if time.time() - last_time < 300.0:
                         return # Tin text trùng -> Bỏ qua
-        # Voice: chỉ chặn nếu cùng msg_id THẬT (không phải TIME_/VIRTUAL_) trong 5 giây
+        # Voice: chặn trùng lặp cả 2 trường hợp — có ID thật và không có ID thật
         else:
             if not msg_id.startswith("TIME_") and not msg_id.startswith("VIRTUAL_") and not msg_id.startswith("CONTENT_") and not msg_id.startswith("VOICE_"):
+                # Voice có ID thật → chặn 60s theo ID
                 voice_key = f"VOICE_REAL_{conversation_id}_{msg_id}"
                 if voice_key in self.processed_msg_hashes:
-                    if time.time() - self.processed_msg_hashes[voice_key] < 5.0:
+                    if time.time() - self.processed_msg_hashes[voice_key] < 60.0:
                         return
                 self.processed_msg_hashes[voice_key] = time.time()
+            else:
+                # Voice KHÔNG có ID thật → chặn 60s theo convId+hash nội dung
+                # Đây là nguyên nhân mỗi nhóm chỉ hiện 1 tin rồi im: JS stableId dùng timeString
+                # cố định nên zauto_seen đã chặn, nhưng nếu timeString thay đổi thì lọt qua
+                voice_fb_key = f"VOICE_FB_{conversation_id}_{msg_hash}"
+                if voice_fb_key in self.processed_msg_hashes:
+                    if time.time() - self.processed_msg_hashes[voice_fb_key] < 60.0:
+                        return
+                self.processed_msg_hashes[voice_fb_key] = time.time()
 
         # Luôn cập nhật mốc mới nhất (cả voice lẫn text)
         self.last_msg_per_group[conversation_id] = (msg_id, msg_hash, time.time())
@@ -1621,12 +1633,19 @@ class ZAutoProApp(MDApp):
         except Exception: pass
 
     def manual_accept_ride(self, card_widget):
+        # Ẩn bàn phím TRƯỚC KHI CHỐT — tránh IME bật lên khi JS điền text vào input
+        if platform == 'android':
+            try:
+                from jnius import autoclass as _ac
+                _ac('org.zauto.ZaloWebManager').hideKeyboard(
+                    _ac('org.kivy.android.PythonActivity').mActivity
+                )
+            except: pass
+
         raw_reply = self.root.ids.inp_reply.text
         replies = [r.strip() for r in raw_reply.split(',') if r.strip()]
         final_reply = random.choice(replies) if replies else "Ok nhận"
 
-        # KHÔNG switch_tab — JS chạy âm thầm trong WebView ngầm
-        # force_manual=True: bấm tay không bị chặn bởi đồng hồ delay 30s
         self.queue_reply(
             card_widget.group_text,
             getattr(card_widget, 'conversation_id', ''),
