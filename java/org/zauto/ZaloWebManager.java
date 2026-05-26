@@ -599,6 +599,61 @@ public class ZaloWebManager {
 
 				"   }, 300);" +
 				"}" +
+				"function _doSend(node, realId, reactObj) {" +
+				"   _discoverApi();" +
+				"   var _sendFn = window.zMessenger && (" +
+				"       window.zMessenger.sendMessage ||" +
+				"       window.zMessenger.sendQuoteMsg ||" +
+				"       window.zMessenger.replyMessage ||" +
+				"       window.zMessenger.sendTextMessage ||" +
+				"       window.zMessenger.sendMsg" +
+				"   );" +
+				"   if (typeof _sendFn === 'function') {" +
+				"       try {" +
+				"           var req = {toid:_convId, msg:_reply, type:1};" +
+				"           var validId = realId && realId.length>4 && !realId.startsWith('TIME_') && !realId.startsWith('VIRTUAL_') && !realId.startsWith('CONTENT_') && !realId.startsWith('CACHE_');" +
+				"           if (validId) {" +
+				"               req.quote = reactObj ? {" +
+				"                   globalMsgId: realId," +
+				"                   ownerId: reactObj.ownerId||reactObj.senderId||reactObj.uid||''," +
+				"                   dName:   reactObj.dName||reactObj.senderName||reactObj.fromName||''," +
+				"                   msg:     reactObj.content||reactObj.msg||reactObj.text||_search," +
+				"                   type:    reactObj.msgType||reactObj.type||1" +
+				"               } : {globalMsgId:realId, msg:_search, type:1};" +
+				"           }" +
+				"           _sendFn.call(window.zMessenger, req);" +
+				"           ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK','');" +
+				"           return;" +
+				"       } catch(apiErr) { console.log('ZAuto API fail:', String(apiErr)); }" +
+				"   }" +
+				"   try {" +
+				"       _superDblClick(node, function(reactHandled) {" +
+				"           _waitBanner(function(bannerOk) {" +
+				"               if (bannerOk) {" +
+				"                   _typeAndSend();" +
+				"               } else {" +
+				"                   _longPress(node, function(lpTriggered) {" +
+				"                       _waitBanner(function(bannerOk2) {" +
+				"                           if (bannerOk2) {" +
+				"                               _typeAndSend();" +
+				"                           } else {" +
+				"                               var rb=null, els=document.querySelectorAll('span,div,li,button,a');" +
+				"                               for(var k=0;k<els.length;k++){" +
+				"                                   var kt=(els[k].textContent||'').trim();" +
+				"                                   if((kt==='Trả lời'||kt==='Reply')&&els[k].offsetParent!==null){rb=els[k];break;}" +
+				"                               }" +
+				"                               if(rb){ rb.click(); setTimeout(function(){_waitBanner(function(b3){_typeAndSend();},1000);},400); }" +
+				"                               else { _typeAndSend(); }" +
+				"                           }" +
+				"                       }, 1800);" +
+				"                   });" +
+				"               }" +
+				"           }, 1800);" +
+				"       });" +
+				"   } catch(domErr) {" +
+				"       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK','');" +
+				"   }" +
+				"}" +
 				"function _superDblClick(node, doneCb) {" +
                 "   if (!node) { doneCb(false); return; }" +
                 // Scroll đến tin, đợi render xong rồi mới đo tọa độ
@@ -730,87 +785,30 @@ public class ZaloWebManager {
                 "       doneCb(triggered);" +
                 "   }, 300);" +   // đợi scroll render
                 "}" +
-
-                // ─────────────────────────────────────────────────────────────
-                // LUỒNG CHẠY CHÍNH
+				// ─────────────────────────────────────────────────────────────
+                // LUỒNG CHẠY CHÍNH (ĐÃ CẬP NHẬT GỌN GÀNG)
                 // ─────────────────────────────────────────────────────────────
                 "_openGroup(function(opened) {" +
                 "   var node    = _findNode();" +
                 "   var ext     = _extractObj(node);" +
-                "   var realId  = ext.id;" +
-                "   var reactObj= ext.obj;" +
-
-                // ── TẦNG 1: API WEBPACK (nhanh nhất, quote chính xác nhất) ──
-                "   _discoverApi();" +
-				"   var _sendFn = window.zMessenger && (" +
-				"       window.zMessenger.sendMessage ||" +
-				"       window.zMessenger.sendQuoteMsg ||" +
-				"       window.zMessenger.replyMessage ||" +
-				"       window.zMessenger.sendTextMessage ||" +
-				"       window.zMessenger.sendMsg" +
-				"   );" +
-				"   if (typeof _sendFn === 'function') {" +
-				"       try {" +
-				"           var req = {toid:_convId, msg:_reply, type:1};" +
-				"           var validId = realId && realId.length>4 && !realId.startsWith('TIME_') && !realId.startsWith('VIRTUAL_') && !realId.startsWith('CONTENT_') && !realId.startsWith('CACHE_');" +
-				"           if (validId) {" +
-				"               if (reactObj) {" +
-				"                   req.quote = {" +
-				"                       globalMsgId: realId," +
-				"                       ownerId: reactObj.ownerId||reactObj.senderId||reactObj.uid||''," +
-				"                       dName:   reactObj.dName||reactObj.senderName||reactObj.fromName||''," +
-				"                       msg:     reactObj.content||reactObj.msg||reactObj.text||_search," +
-				"                       type:    reactObj.msgType||reactObj.type||1" +
-				"                   };" +
-				"               } else {" +
-				"                   req.quote = {globalMsgId:realId, msg:_search, type:1};" +
-				"               }" +
-				"           }" +
-				"           _sendFn.call(window.zMessenger, req);" +
-				"           ZAutoBridge.onLoginSuccess('Chốt API QUOTE OK','');" +
-				"           return;" +
-				"       } catch(apiErr) { console.log('API fail->DOM:', String(apiErr)); }" +
-				"   }" +
-
-                // ── TẦNG 2: SUPER DOUBLE CLICK → LONG PRESS PHÒNG BỊ → GỬI ─────────
-				"   try {" +
-				"       _superDblClick(node, function(reactHandled) {" +
-				"           _waitBanner(function(bannerOk) {" +
-				"               console.log('ZAuto: banner='+bannerOk+' reactHandler='+reactHandled);" +
-				"               if (bannerOk) {" +
-				"                   _typeAndSend();" +
-				"               } else {" +
-				"                   _longPress(node, function(lpTriggered) {" +
-				"                       // _longPress đã click 'Trả lời' trong popup → chờ banner" +
-				"                       _waitBanner(function(bannerOk2) {" +
-				"                           console.log('ZAuto: longPress+reply banner='+bannerOk2);" +
-				"                           if (bannerOk2) {" +
-				"                               _typeAndSend();" +
-				"                           } else {" +
-				"                               // Retry: popup vẫn hiện hoặc click chưa được" +
-				"                               var rb=null, els=document.querySelectorAll('span,div,li,button,a');" +
-				"                               for(var k=0;k<els.length;k++){" +
-				"                                   var kt=(els[k].textContent||'').trim();" +
-				"                                   if((kt==='Trả lời'||kt==='Reply')&&els[k].offsetParent!==null){rb=els[k];break;}" +
-				"                               }" +
-				"                               if(rb){" +
-				"                                   rb.click();" +
-				"                                   setTimeout(function(){_waitBanner(function(b3){_typeAndSend();},1000);},400);" +
-				"                               } else { _typeAndSend(); }" +
-				"                           }" +
-				"                       }, 1800);" +
-				"                   });" +
-				"               }" +
-				"           }, 1800);" +
-				"       });" +
-				"   } catch(domErr) {" +
-				"       ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK','');" +
-				"   }" +
+                "   if (!opened) {" +
+                "       console.log('ZAuto: group not opened, retry click convId='+_convId);" +
+                "       var directItem = document.querySelector('[anim-data-id=\"'+_convId+'\"]');" +
+                "       if (directItem) { directItem.click(); }" +
+                "       setTimeout(function() {" +
+                "           var n2=_findNode(); var e2=_extractObj(n2);" +
+                "           if (!n2) { ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); return; }" +
+                "           _doSend(n2, e2.id, e2.obj);" +
+                "       }, 2000);" +
+                "       return;" +
+                "   }" +
+                "   _doSend(node, ext.id, ext.obj);" +
                 "});" +
 
                 "} catch(e) { console.log('ZAuto fatal:',String(e)); ZAutoBridge.onLoginSuccess('TRIGGER_VISION_FALLBACK',''); }" +
                 "})();";
 
+                // KẾT THÚC CHUỖI JAVASCRIPT VÀ GỬI XUỐNG WEBVIEW
                 hiddenWebView.evaluateJavascript(jsCode, null);
             } catch (Exception e) {
                 Log.e(TAG, "Reply Engine Error", e);
