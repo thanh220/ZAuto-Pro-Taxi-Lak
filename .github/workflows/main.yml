@@ -12,21 +12,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Tự động tải Node.js Binaries (Giải quyết vấn đề file nặng)
+      # 1. Tự động tải Node.js Binaries
       - name: Download Node.js Binaries
         run: |
           mkdir -p nodejs_backend/bin
-          # Tải bản ARM64
           curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-arm64.tar.xz
           tar -xf node-v20.11.1-linux-arm64.tar.xz
           cp node-v20.11.1-linux-arm64/bin/node nodejs_backend/bin/node_arm64
-          
-          # Tải bản ARMv7
           curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
           tar -xf node-v20.11.1-linux-armv7l.tar.xz
           cp node-v20.11.1-linux-armv7l/bin/node nodejs_backend/bin/node_armv7
-          
-          # Dọn dẹp file tạm
           rm -rf node-v20.11.1-linux-*
 
       # 2. Thiết lập Python
@@ -35,13 +30,13 @@ jobs:
         with:
           python-version: '3.11.4'
 
-      # 3. Cài đặt Node.js để Build API Zalo
+      # 3. Cài đặt Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 4. Tải các thư viện API Zalo (npm install)
+      # 4. Cài đặt các thư viện API Zalo
       - name: Install Node.js Dependencies
         run: |
           cd nodejs_backend
@@ -52,34 +47,24 @@ jobs:
           sudo apt update
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev build-essential patch libjpeg-dev libpng-dev ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
 
-     - name: Setup Build Environment with Auto-Optimization
+      # 5. Cấu hình môi trường build thông minh
+      - name: Setup Build Environment with Auto-Optimization
         run: |
-          # 1. Quét thông tin môi trường
-          echo "Đang quét môi trường..."
           PYTHON_VER=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-          echo "Phiên bản Python: $PYTHON_VER"
-          
-          # 2. Tự động đưa ra phiên bản pip tương thích
-          # Nếu Python là 3.11, pip 23.1.2 là phiên bản "vàng" cho buildozer
           if [ "$PYTHON_VER" == "3.11" ]; then
             TARGET_PIP="23.1.2"
           else
             TARGET_PIP="latest"
           fi
-          
-          echo "Phiên bản Pip phù hợp: $TARGET_PIP"
-          
-          # 3. Tự cấu hình và cài đặt
           python -m pip install --upgrade pip==$TARGET_PIP
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
-          
-          # 4. Khóa cứng cấu hình để không bị tự update lại
           echo "VIRTUALENV_PIP=$TARGET_PIP" >> $GITHUB_ENV
           echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> $GITHUB_ENV
+          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
+
       - name: Build APK
         run: |
-          # Dùng debug hoặc release tùy bạn
           buildozer android debug
 
       - name: Upload APK
