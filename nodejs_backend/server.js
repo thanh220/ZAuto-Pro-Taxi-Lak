@@ -201,19 +201,24 @@ async function startZalo() {
 
 app.get('/api/events', (req, res) => { res.json({ events: eventQueue }); eventQueue = []; });
 
-// CỔNG MỚI: NHẬN COOKIE TƯƠI TỪ TRÌNH DUYỆT ĐIỆN THOẠI (WEBVIEW ANDROID)
+// CỔNG MỚI: NHẬN DỮ LIỆU TƯƠI TỪ TRÌNH DUYỆT ĐIỆN THOẠI (WEBVIEW ANDROID)
 app.post('/api/cookie_login', async (req, res) => {
     try {
-        const { raw_cookie } = req.body;
+        const { raw_cookie, imei, user_agent } = req.body; // Nhận cả 3 thông số
         if (!raw_cookie) return res.status(400).json({error: 'Thiếu cookie'});
         
         if (fs.existsSync('cookie.json')) fs.unlinkSync('cookie.json');
         if (api) { try { api.listener.stop(); } catch(e){} api = null; }
 
-        console.log('🔄 Đang chuyển đổi Cookie từ WebView...');
+        console.log('🔄 Đang chuyển đổi dữ liệu từ WebView...');
         const tempZalo = new Zalo({ selfListen: false, checkUpdate: false, logging: true });
         
-        api = await tempZalo.login({ cookie: raw_cookie });
+        // Đăng nhập BẤT TỬ bằng Cookie + IMEI + UserAgent
+        api = await tempZalo.login({ 
+            cookie: raw_cookie,
+            imei: imei || undefined,
+            userAgent: user_agent || undefined
+        });
 
         const ctx = api.getContext();
         const sessionData = {
@@ -227,7 +232,7 @@ app.post('/api/cookie_login', async (req, res) => {
         startListener();
         res.json({status: 'success'});
     } catch (e) {
-        console.error('❌ Lỗi xử lý WebView Cookie:', e);
+        console.error('❌ Lỗi xử lý WebView Data:', e);
         res.status(500).json({error: String(e)});
     }
 });
