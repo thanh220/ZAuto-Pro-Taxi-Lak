@@ -12,19 +12,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Thiết lập Python
+      # 1. Tự động tải Node.js Binaries (Giải quyết vấn đề file nặng)
+      - name: Download Node.js Binaries
+        run: |
+          mkdir -p nodejs_backend/bin
+          # Tải bản ARM64
+          curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-arm64.tar.xz
+          tar -xf node-v20.11.1-linux-arm64.tar.xz
+          cp node-v20.11.1-linux-arm64/bin/node nodejs_backend/bin/node_arm64
+          
+          # Tải bản ARMv7
+          curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
+          tar -xf node-v20.11.1-linux-armv7l.tar.xz
+          cp node-v20.11.1-linux-armv7l/bin/node nodejs_backend/bin/node_armv7
+          
+          # Dọn dẹp file tạm
+          rm -rf node-v20.11.1-linux-*
+
+      # 2. Thiết lập Python
       - name: Set up Python 3.11.4
         uses: actions/setup-python@v5
         with:
           python-version: '3.11.4'
 
-      # 2. Cài đặt Node.js để Build API Zalo
+      # 3. Cài đặt Node.js để Build API Zalo
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3. Tải các thư viện API Zalo (npm install)
+      # 4. Tải các thư viện API Zalo (npm install)
       - name: Install Node.js Dependencies
         run: |
           cd nodejs_backend
@@ -44,7 +61,7 @@ jobs:
 
       - name: Build APK
         run: |
-          # Dùng cache của buildozer để build nhanh hơn ở các lần sau
+          # Dùng debug hoặc release tùy bạn
           buildozer android debug
 
       - name: Upload APK
