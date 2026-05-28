@@ -112,6 +112,36 @@ function startListener() {
                 });
             }
         }
+
+        // ── TIN NHẮN ẢNH (BẮT CUỐC BẰNG HÌNH ĐỂ LÀM OCR) ──
+        if (msgType === 'chat.photo' && typeof content === 'object' && content !== null) {
+            const photoUrl = content.href || content.normalUrl || content.hdUrl || '';
+            if (photoUrl) {
+                eventQueue.push({
+                    action: 'WEB_NEW_PHOTO',
+                    data: {
+                        msg_type: 'photo',
+                        group_id: msg.threadId,
+                        group_name: msg.threadId,
+                        sender_id: msg.data.uidFrom,
+                        sender_name: msg.data.dName || '',
+                        photo_url: photoUrl,
+                        msg_id: msg.data.msgId,
+                        is_group: isGroup,
+                        raw_data: {
+                            content: msg.data.content,
+                            msgType: msg.data.msgType,
+                            msgId: msg.data.msgId,
+                            cliMsgId: msg.data.cliMsgId,
+                            ts: msg.data.ts,
+                            ttl: msg.data.ttl,
+                            uidFrom: msg.data.uidFrom,
+                            propertyExt: msg.data.propertyExt
+                        }
+                    }
+                });
+            }
+        }
     });
 
     api.listener.start({ retryOnClose: true });
@@ -260,25 +290,25 @@ app.post('/api/reply', async (req, res) => {
             messageContent = {
                 msg: message,
                 quote: {
-					content: typeof quote_raw_data.content === 'object' 
-						? JSON.stringify(quote_raw_data.content)  
-						: quote_raw_data.content,
-					msgType: quote_raw_data.msgType,
-					propertyExt: quote_raw_data.propertyExt,
-					uidFrom: quote_raw_data.uidFrom,
-					msgId: quote_raw_data.msgId,
-					cliMsgId: quote_raw_data.cliMsgId,
-					ts: quote_raw_data.ts,
-					ttl: quote_raw_data.ttl || 0
-				}
+                    content: typeof quote_raw_data.content === 'object' 
+                        ? JSON.stringify(quote_raw_data.content)  
+                        : quote_raw_data.content,
+                    msgType: quote_raw_data.msgType,
+                    propertyExt: quote_raw_data.propertyExt,
+                    uidFrom: quote_raw_data.uidFrom,
+                    msgId: quote_raw_data.msgId,
+                    cliMsgId: quote_raw_data.cliMsgId,
+                    ts: quote_raw_data.ts,
+                    ttl: quote_raw_data.ttl || 0
+                }
             };
         } else {
             messageContent = { msg: message };
         }
 
-		const threadType = is_group ? 1 : 0;  
+        const threadType = is_group ? 1 : 0;  
         // Ép kiểu String(group_id) để đảm bảo không bị lỗi dữ liệu
-		await api.sendMessage(messageContent, String(group_id), threadType);
+        await api.sendMessage(messageContent, String(group_id), threadType);
         res.json({ status: 'success' });
 
     } catch (error) {
