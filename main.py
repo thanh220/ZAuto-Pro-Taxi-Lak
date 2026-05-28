@@ -389,13 +389,13 @@ MDScreen:
                     # ---> NÚT NÀY CŨNG ĐÃ LÙI LỀ VÀO TRONG <---
                     MDRaisedButton:
                         id: btn_zalo_action
-                        text: "TẢI LẠI"
+                        text: "1. ĐỒNG BỘ ZALO"
                         size_hint_y: None
                         height: "36dp"
-                        md_bg_color: 1, 1, 1, 0.25
+                        md_bg_color: 0.1, 0.6, 0.2, 1
                         pos_hint: {"center_y": .5}
                         elevation: 0
-                        on_release: app.reload_zalo_web()
+                        on_release: app.sync_cookie_from_webview()
 
                 # ---> HỘP CHỨA WEBVIEW PHẢI NẰM NGOÀI ĐỂ XẾP DƯỚI THANH STATUS <---
                 MDBoxLayout:
@@ -910,10 +910,10 @@ class ZAutoProApp(MDApp):
                 cpu_arch = std_platform.machine().lower()
                 
                 if 'aarch64' in cpu_arch or 'arm64' in cpu_arch:
-                    node_file = 'node_arm64.bin' # <-- Thêm .bin vào đây
+                    node_file = 'node_arm64' # <-- Đã loại bỏ .bin
                     logger.info("📱 Phát hiện CPU 64-bit -> Dùng Node.js ARM64")
                 else:
-                    node_file = 'node_armv7.bin' # <-- Thêm .bin vào đây
+                    node_file = 'node_armv7' # <-- Đã loại bỏ .bin
                     logger.info("📱 Phát hiện CPU 32-bit -> Dùng Node.js ARMv7")
                     
                 node_bin_path = os.path.join(app_dir, 'nodejs_backend', 'bin', node_file)
@@ -944,8 +944,6 @@ class ZAutoProApp(MDApp):
                     ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 )
 
-                
-
                 # ÉP CPU KHÔNG NGỦ (MỨC 1)
                 PowerManager = autoclass('android.os.PowerManager')
                 Context = autoclass('android.content.Context')
@@ -961,35 +959,42 @@ class ZAutoProApp(MDApp):
                 if not self.wifilock.isHeld():
                     self.wifilock.acquire()
 
-                # ==========================================
-                # 3. KHỞI TẠO KIẾN TRÚC REALTIME VÀ WORKER
-                # ==========================================
-                self.processed_msg_hashes = LRUCache(maxsize=1000)
-                self.global_last_reply = 0
-                self.last_reply_time = LRUCache(maxsize=200)
-
-                # Luồng 1: Xử lý nội dung tin nhắn
-                self.msg_worker_thread = threading.Thread(target=self._message_worker, daemon=True)
-                self.msg_worker_thread.start()
-
-                # Luồng 2: Gọi lệnh gửi tin nhắn chốt cuốc
-                self.reply_worker_thread = threading.Thread(target=self._reply_worker_loop, daemon=True)
-                self.reply_worker_thread.start()
-
-                # Luồng 3: Đọc giọng nói (TTS)
-                self.audio_worker_thread = threading.Thread(target=self._audio_worker_loop, daemon=True)
-                self.audio_worker_thread.start()
-
-                # Luồng 4: Giao tiếp với API Node.js ngầm 24/24
-                self.poll_worker_thread = threading.Thread(target=self._nodejs_poll_worker, daemon=True)
-                self.poll_worker_thread.start()
-
-                # Khởi chạy các bộ đếm thời gian
-                Clock.schedule_interval(self._system_watchdog, 180)
-                Clock.schedule_interval(self._process_ui_queue, 0.1)
+                # KHỞI TẠO WEBVIEW CHÌM (Dùng để khách hàng đăng nhập Zalo)
+                try:
+                    ZWebManager = autoclass('org.zauto.ZaloWebManager')
+                    ZWebManager.initWebView(PythonActivity.mActivity)
+                except Exception as e:
+                    logger.error(f"Lỗi gọi ZaloWebManager: {e}")
 
             except Exception as e:
                 logger.error(f"Lỗi on_start cấu hình Android: {traceback.format_exc()}")
+
+        # ==========================================
+        # 3. KHỞI TẠO KIẾN TRÚC REALTIME VÀ WORKER (CHẠY ĐƯỢC CẢ TRÊN PC)
+        # ==========================================
+        self.processed_msg_hashes = LRUCache(maxsize=1000)
+        self.global_last_reply = 0
+        self.last_reply_time = LRUCache(maxsize=200)
+
+        # Luồng 1: Xử lý nội dung tin nhắn
+        self.msg_worker_thread = threading.Thread(target=self._message_worker, daemon=True)
+        self.msg_worker_thread.start()
+
+        # Luồng 2: Gọi lệnh gửi tin nhắn chốt cuốc
+        self.reply_worker_thread = threading.Thread(target=self._reply_worker_loop, daemon=True)
+        self.reply_worker_thread.start()
+
+        # Luồng 3: Đọc giọng nói (TTS)
+        self.audio_worker_thread = threading.Thread(target=self._audio_worker_loop, daemon=True)
+        self.audio_worker_thread.start()
+
+        # Luồng 4: Giao tiếp với API Node.js ngầm 24/24
+        self.poll_worker_thread = threading.Thread(target=self._nodejs_poll_worker, daemon=True)
+        self.poll_worker_thread.start()
+
+        # Khởi chạy các bộ đếm thời gian
+        Clock.schedule_interval(self._system_watchdog, 180)
+        Clock.schedule_interval(self._process_ui_queue, 0.1)
     def update_group_list_ui(self, groups):
         """Cập nhật danh sách nhóm kèm Avatar từ Zalo Web"""
         try:
@@ -1435,7 +1440,40 @@ class ZAutoProApp(MDApp):
                 try:
                     self.ui_queue.put_nowait(('remove_by_key', cache_key))
                 except queue.Full: pass
-
+    def sync_cookie_from_webview(self):
+        """Hút cookie từ Java WebView và gửi cho Node.js"""
+        if platform == 'android':
+            try:
+                from jnius import autoclass
+                import requests
+                
+                self.safe_toast("Đang đồng bộ dữ liệu Zalo...")
+                ZWebManager = autoclass('org.zauto.ZaloWebManager')
+                
+                # Gọi hàm Java để hút Cookie
+                raw_cookie = ZWebManager.extractZaloCookie()
+                
+                if not raw_cookie or "zpw_sek" not in raw_cookie:
+                    self.safe_toast("❌ Bạn chưa đăng nhập Zalo trên khung Web bên dưới!")
+                    return
+                    
+                # Gửi Cookie tươi xuống cho API Node.js (cổng /api/cookie_login bạn vừa tạo ở server.js)
+                res = requests.post("http://127.0.0.1:5000/api/cookie_login", json={"raw_cookie": raw_cookie}, timeout=15)
+                
+                if res.status_code == 200:
+                    self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
+                    self.config_data['is_linked'] = True
+                    self.is_linked = True
+                    self.save_config_silent()
+                    self.update_profile_ui()
+                    
+                    # Ẩn khung Web đi cho nhẹ màn hình
+                    ZWebManager.updateWebViewBounds(PythonActivity.mActivity, 0, 0, 1080, 2400, False)
+                else:
+                    self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
+            except Exception as e:
+                logger.error(f"Lỗi sync cookie: {e}")
+                self.safe_toast("❌ Lỗi kết nối đến Server ngầm.")
     def _system_watchdog(self, dt):
         """Khôi phục Worker, Tối ưu RAM và chặn nhân bản Thread"""
         self.gc_counter += 1
@@ -1684,13 +1722,13 @@ class ZAutoProApp(MDApp):
         # ✅ DÒNG NÀY PHẢI ĐƯỢC THỤT VÀO NGANG VỚI CHỮ "def _load_qr_thread():"
         threading.Thread(target=_load_qr_thread, daemon=True).start()
     def _nodejs_poll_worker(self):
-     """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
-     while getattr(self, 'app_running', True):
-         try:
-             self._poll_nodejs_queue(None)
-         except Exception:
-             pass
-         time.sleep(0.5) # Quét Node.js 0.5s/lần 
+        """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
+        while getattr(self, 'app_running', True):
+            try:
+                self._poll_nodejs_queue(None)
+            except Exception:
+                pass
+            time.sleep(0.5) # Quét Node.js 0.5s/lần
 
     def add_ride_card(self, group, msg, msg_id="", conversation_id="", cache_key="", raw_msg=""):
         try:
@@ -1912,8 +1950,42 @@ class ZAutoProApp(MDApp):
     def check_permissions_and_guide(self):
         self.safe_toast("Bản cập nhật mới dùng API ngầm, không cần cấp quyền Trợ Năng nữa!")
 
-    def reload_zalo_web(self):
-        pass # Không dùng WebView nữa nên không cần reload
+    def sync_cookie_from_webview(self):
+        """Hút cookie từ Java WebView và gửi cho Node.js"""
+        if platform == 'android':
+            try:
+                from jnius import autoclass
+                import requests
+                
+                self.safe_toast("Đang đồng bộ dữ liệu Zalo...")
+                ZWebManager = autoclass('org.zauto.ZaloWebManager')
+                
+                # Gọi hàm Java để hút Cookie
+                raw_cookie = ZWebManager.extractZaloCookie()
+                
+                if not raw_cookie or "zpw_sek" not in raw_cookie:
+                    self.safe_toast("❌ Bạn chưa đăng nhập Zalo trên khung Web bên dưới!")
+                    return
+                    
+                # Gửi Cookie tươi xuống cho API Node.js
+                res = requests.post("http://127.0.0.1:5000/api/cookie_login", json={"raw_cookie": raw_cookie}, timeout=15)
+                
+                if res.status_code == 200:
+                    self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
+                    self.config_data['is_linked'] = True
+                    self.is_linked = True
+                    self.save_config_silent()
+                    self.update_profile_ui()
+                    
+                    # Ẩn khung Web đi cho nhẹ màn hình
+                    ZWebManager.updateWebViewBounds(PythonActivity.mActivity, 0, 0, 1080, 2400, False)
+                else:
+                    self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
+            except Exception as e:
+                logger.error(f"Lỗi sync cookie: {e}")
+                self.safe_toast("❌ Lỗi kết nối đến Server ngầm.")
+        else:
+            self.safe_toast("Tính năng này chỉ chạy trên điện thoại Android.")
 
     def show_update_popup(self, server_ver, update_note, apk_url):
         """Hiện popup cập nhật - responsive theo màn hình, đồng bộ style app"""
