@@ -20,8 +20,7 @@ version = 7.0
 
 
 # (list) Application requirements
-requirements = python3,kivy==2.2.1,kivymd==1.1.1,pillow,pyjnius,requests,plyer
-
+requirements = python3,kivy==2.2.1,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
 # (str) Presplash of the application
 presplash.filename = profile.jpg
 presplash.color = #FFFFFF
