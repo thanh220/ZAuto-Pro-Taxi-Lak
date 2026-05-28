@@ -917,6 +917,11 @@ class ZAutoProApp(MDApp):
                     logger.info("📱 Phát hiện CPU 32-bit -> Dùng Node.js ARMv7")
                     
                 node_bin_path = os.path.join(app_dir, 'nodejs_backend', 'bin', node_file)
+                if os.path.exists(node_bin_path):
+                    logger.info(f"✅ Đã tìm thấy file Node tại: {node_bin_path}")
+                    os.system(f"chmod +x {node_bin_path}") # Cấp quyền thực thi
+                else:
+                    logger.error(f"❌ KHÔNG TÌM THẤY FILE NODE TẠI: {node_bin_path}")
                 server_js_path = os.path.join(app_dir, 'nodejs_backend', 'server.js')
                 backend_dir = os.path.join(app_dir, 'nodejs_backend')
                 
