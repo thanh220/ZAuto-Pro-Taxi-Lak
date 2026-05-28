@@ -442,11 +442,11 @@ MDScreen:
                                 orientation: 'vertical'
                                 padding: ["10dp", 0, 0, 0]
                                 MDLabel:
-                                    text: "Taxi Lắk - ZAuto VIP"
+                                    text: "ZAuto VIP"
                                     font_style: "Subtitle2"
                                     bold: True
                                 MDLabel:
-                                    text: "Hỗ trợ mua: 0838429999"
+                                    text: "Hỗ trợ mua: 083.842.9999"
                                     theme_text_color: "Primary"
                                     font_style: "Caption"
 
@@ -917,8 +917,7 @@ class ZAutoProApp(MDApp):
                     ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 )
 
-                request_permissions([Permission.INTERNET, Permission.ACCESS_FINE_LOCATION, Permission.POST_NOTIFICATIONS])
-                autoclass('org.zauto.ZaloForegroundService').startService(PythonActivity.mActivity)
+                
 
                 # ÉP CPU KHÔNG NGỦ (MỨC 1)
                 PowerManager = autoclass('android.os.PowerManager')
@@ -1453,33 +1452,78 @@ class ZAutoProApp(MDApp):
                     data = ev.get("data", {})
 
                     if action == 'LOGIN_SUCCESS':
-                        # ... (Code cũ giữ nguyên) ...
                         self.is_linked = True
                         self.config_data['is_linked'] = True
                         self.save_config_silent()
                         Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
-                        
-                        # QUAN TRỌNG: Dọn sạch màn hình để xóa mã QR sau khi login xong
                         Clock.schedule_once(lambda dt: self.root.ids.webview_container.clear_widgets(), 0)
                         self.safe_toast("Đã liên kết API Zalo thành công!")
 
                     elif action == 'GROUPS_DATA':
-                        # ... (Code cũ giữ nguyên) ...
                         groups = data.get('groups', [])
                         Clock.schedule_once(lambda dt, g=groups: self.update_group_list_ui(g), 0)
 
-                    elif action == 'WEB_NEW_MSG':
-                        # ... (Code cũ giữ nguyên) ...
-                        pass
-
-                    # TÍNH NĂNG MỚI: NHẬN LỆNH BẬT MÃ QR
                     elif action == 'REQUIRE_QR':
                         qr_url = data.get('url')
-                        # Gọi hàm vẽ QR lên màn hình (chạy trên luồng UI Kivy)
                         Clock.schedule_once(lambda dt, u=qr_url: self.show_qr_code(u), 0)
 
+                    elif action == 'QR_EXPIRED':
+                        self.safe_toast("⏰ QR hết hạn, đang tạo mã mới...")
+
+                    elif action == 'QR_SCANNED':
+                        name = data.get('name', '')
+                        self.safe_toast(f"📱 Đã quét QR: {name}")
+
+                    elif action == 'QR_DECLINED':
+                        self.safe_toast("❌ Người dùng từ chối đăng nhập")
+
+                    elif action == 'LOGIN_ERROR':
+                        self.safe_toast(f"❌ Lỗi Zalo: {data.get('error', '')[:60]}")
+
+                    # ✅ XỬ LÝ TIN NHẮN TEXT
+                    elif action == 'WEB_NEW_MSG':
+                        if getattr(self, 'is_radar_running', False):
+                            group_id = data.get('group_id', '')
+                            sender = data.get('sender_name', '')
+                            text = data.get('text', '')
+                            msg_id = data.get('msg_id', '')
+                            is_group = data.get('is_group', True)
+                            full_msg = f"{sender}: {text}" if sender else text
+                            self.msg_queue.put_nowait((
+                                'WEB_NEW_MSG',
+                                {
+                                    'group': group_id,
+                                    'msg': full_msg,
+                                    'msg_id': msg_id,
+                                    'conversation_id': group_id,
+                                    'is_group': is_group
+                                }
+                            ))
+
+                    # ✅ XỬ LÝ TIN THOẠI
+                    elif action == 'WEB_NEW_VOICE':
+                        if getattr(self, 'is_radar_running', False):
+                            group_id = data.get('group_id', '')
+                            sender = data.get('sender_name', '')
+                            msg_id = data.get('msg_id', '')
+                            voice_url = data.get('voice_url', '')
+                            is_group = data.get('is_group', True)
+                            voice_text = f"{sender}: [tin nhắn thoại]%%%-1" if sender else "[tin nhắn thoại]%%%-1"
+                            self.msg_queue.put_nowait((
+                                'WEB_NEW_MSG',
+                                {
+                                    'group': group_id,
+                                    'msg': voice_text,
+                                    'msg_id': msg_id,
+                                    'conversation_id': group_id,
+                                    'is_group': is_group,
+                                    'voice_url': voice_url,
+                                    'raw_data': data.get('raw_data', {})
+                                }
+                            ))
+
         except requests.exceptions.RequestException:
-            pass 
+            pass
         except Exception as e:
             logger.error(f"Lỗi poll Node.js: {e}")
 
@@ -1487,36 +1531,42 @@ class ZAutoProApp(MDApp):
     # HÀM MỚI: TẢI ẢNH QR VÀ NHÉT VÀO KHOẢNG TRỐNG TRÊN MÀN HÌNH
     # ==============================================================
     def show_qr_code(self, url):
-        try:
-            import requests
-            from io import BytesIO
-            from kivy.core.image import Image as CoreImage
-            from kivy.uix.image import Image
+        # Cập nhật UI ngay trước khi tải
+        self.root.ids.zalo_name_view.text = "CẦN QUÉT MÃ QR BÊN DƯỚI"
+        self.root.ids.btn_zalo_action.text = "ĐANG CHỜ QUÉT..."
+        self.root.ids.btn_zalo_action.md_bg_color = (0.8, 0.4, 0.1, 1)
+        self.root.ids.bottom_nav.switch_tab('tab_zalo')
 
-            # Đổi chữ trạng thái để người dùng biết
-            self.root.ids.zalo_name_view.text = "CẦN QUÉT MÃ QR BÊN DƯỚI"
-            self.root.ids.btn_zalo_action.text = "ĐANG CHỜ QUÉT..."
-            self.root.ids.btn_zalo_action.md_bg_color = (0.8, 0.4, 0.1, 1)
+        # ✅ TẢI ẢNH TRÊN LUỒNG RIÊNG, KHÔNG BLOCK KIVY UI
+        def _load_qr_thread():
+            try:
+                import requests
+                from io import BytesIO
+                from kivy.core.image import Image as CoreImage
 
-            # 1. Tải ảnh QR từ Node.js Server về thẳng RAM Python
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                image_data = BytesIO(response.content)
-                core_image = CoreImage(image_data, ext="png")
-                
-                # 2. Tạo một Widget chứa ảnh QR to, rõ ràng
-                qr_widget = Image(texture=core_image.texture, size_hint=(1, 1))
-                
-                # 3. Xóa các thứ lặt vặt và nhét ảnh QR vào khoang `webview_container`
-                container = self.root.ids.webview_container
-                container.clear_widgets()
-                container.add_widget(qr_widget)
-                
-                # Tự động nhảy sang Tab Zalo để người dùng thấy QR ngay lập tức
-                self.root.ids.bottom_nav.switch_tab('tab_zalo')
-                
-        except Exception as e:
-            logger.error(f"Lỗi hiển thị mã QR: {e}")
+                response = requests.get(url, timeout=5)
+                if response.status_code == 200:
+                    image_data = BytesIO(response.content)
+                    # CoreImage phải tạo trước khi lên UI
+                    core_image = CoreImage(image_data, ext="png")
+
+                    # ✅ Chỉ thao tác Widget trên luồng UI
+                    def _update_ui(dt):
+                        try:
+                            from kivy.uix.image import Image
+                            qr_widget = Image(texture=core_image.texture, size_hint=(1, 1))
+                            container = self.root.ids.webview_container
+                            container.clear_widgets()
+                            container.add_widget(qr_widget)
+                        except Exception as e:
+                            logger.error(f"Lỗi vẽ QR lên UI: {e}")
+
+                    Clock.schedule_once(_update_ui, 0)
+            except Exception as e:
+                logger.error(f"Lỗi tải ảnh QR: {e}")
+
+        # ✅ DÒNG NÀY PHẢI ĐƯỢC THỤT VÀO NGANG VỚI CHỮ "def _load_qr_thread():"
+        threading.Thread(target=_load_qr_thread, daemon=True).start()
     def _nodejs_poll_worker(self):
      """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
      while getattr(self, 'app_running', True):
@@ -1625,10 +1675,11 @@ class ZAutoProApp(MDApp):
         def _do_send_api():
             try:
                 # Gom dữ liệu khớp với API của sendMessage.ts bên Node.js
+                # Thay đoạn data = { ... } cũ bằng:
                 data = {
                     "group_id": payload.get('conversation_id', ''),
                     "message": payload.get('reply_text', ''),
-                    "quote_msg_id": payload.get('msg_id', '') # Dùng để reply đè tin nhắn khách
+                    "is_group": True  # ✅ THÊM: Node.js cần field này để biết gửi nhóm hay cá nhân
                 }
                 # Gửi request sang Node.js đang chạy ngầm ở port 5000
                 res = requests.post("http://127.0.0.1:5000/api/reply", json=data, timeout=5)
@@ -1741,61 +1792,7 @@ class ZAutoProApp(MDApp):
         toast("Đã dọn dẹp tin nhắn.")
 
     def check_permissions_and_guide(self):
-        """Hàm tự động quét quyền và điều hướng thông minh"""
-        if platform == 'android':
-            try:
-                from jnius import autoclass
-                PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                Settings = autoclass('android.provider.Settings')
-                Intent = autoclass('android.content.Intent')
-                
-                context = PythonActivity.mActivity
-                resolver = context.getContentResolver()
-                
-                # Lấy package name hiện tại (org.zauto.taxi)
-                pkg_name = context.getPackageName() 
-                
-                acc_granted = False
-                notif_granted = False
-                
-                # --- 1. KIỂM TRA QUYỀN TRỢ NĂNG (ACCESSIBILITY) ---
-                # Đọc chuỗi các dịch vụ trợ năng đang được bật trên điện thoại
-                acc_services = Settings.Secure.getString(resolver, "enabled_accessibility_services")
-                if acc_services and f"{pkg_name}/org.zauto.ZaloAccessibility" in acc_services:
-                    acc_granted = True
-                    
-                # --- 2. KIỂM TRA QUYỀN ĐỌC THÔNG BÁO (NOTIFICATION LISTENER) ---
-                # Đọc chuỗi các dịch vụ nghe thông báo đang được bật
-                notif_listeners = Settings.Secure.getString(resolver, "enabled_notification_listeners")
-                if notif_listeners and f"{pkg_name}/org.zauto.ZaloNotificationService" in notif_listeners:
-                    notif_granted = True
-
-                # --- 3. XỬ LÝ ĐIỀU HƯỚNG ---
-                if acc_granted and notif_granted:
-                    # Nếu cả 2 quyền cốt lõi đã bật
-                    toast("Tuyệt vời! Ứng dụng đã được cấp đầy đủ quyền.")
-                
-                elif not acc_granted:
-                    # Nếu chưa bật Trợ Năng -> Dẫn thẳng vào mục Trợ Năng
-                    toast("Vui lòng tìm và BẬT 'ZAuto VIP' trong phần Trợ Năng!")
-                    intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                
-                elif not notif_granted:
-                    # Nếu chưa bật Đọc Thông Báo -> Dẫn thẳng vào mục Quyền Thông Báo
-                    toast("Vui lòng CHO PHÉP 'ZAuto VIP' đọc thông báo!")
-                    intent = Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-
-            except Exception:
-                print(traceback.format_exc())
-                # Backup an toàn nếu điện thoại khách không hỗ trợ hàm check
-                toast("Hãy tìm và cấp quyền cho ứng dụng ZAuto VIP")
-                try:
-                    PythonActivity.mActivity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                except: pass
+        self.safe_toast("Bản cập nhật mới dùng API ngầm, không cần cấp quyền Trợ Năng nữa!")
 
     def reload_zalo_web(self):
         pass # Không dùng WebView nữa nên không cần reload
@@ -2057,7 +2054,9 @@ class ZAutoProApp(MDApp):
                     self.safe_toast(*args)
                 elif task == 'speak':
                     if platform == 'android':
-                        try: autoclass('org.zauto.ZaloWebManager').speak(args)
+                        try:
+                            from plyer import tts
+                            tts.speak(args)
                         except: pass
                 # ĐÓN LỆNH XÓA THẺ KHI AUTO CHỐT THÀNH CÔNG VỚI MÃ KHÓA
                 elif task == 'remove_by_key':
