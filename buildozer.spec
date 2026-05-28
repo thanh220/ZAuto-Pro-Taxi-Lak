@@ -19,7 +19,7 @@ source.include_patterns = nodejs_backend/bin/*, nodejs_backend/node_modules/**
 version = 7.0
 
 # (list) Application requirements
-requirements = python3==3.11.4,hostpython3==3.11.4,kivy==2.3.0,kivymd==1.2.0,pyjnius,requests
+requirements = python3==3.11.4,hostpython3==3.11.4,kivy==2.3.0,kivymd==1.1.1,pyjnius,requests,plyer
 
 # (str) Presplash of the application
 presplash.filename = profile.jpg
