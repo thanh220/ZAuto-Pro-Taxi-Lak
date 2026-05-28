@@ -54,20 +54,19 @@ jobs:
 
       - name: Setup Build Environment
         run: |
-          # 1. Cài đặt các công cụ cơ bản
-          python -m pip install --upgrade pip==23.1.2
+          # ✅ Dùng pip mới, KHÔNG ghim 23.1.2
+          python -m pip install --upgrade pip
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
-          
-          # 2. NGĂN CHẶN XUNG ĐỘT PIP (Cải tiến quan trọng)
+      
+          # ✅ Đổi VIRTUALENV_PIP sang 24.0 (bản đã vá lỗi resolvelib)
+          echo "VIRTUALENV_PIP=24.0" >> $GITHUB_ENV
           echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> $GITHUB_ENV
           echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
-          echo "VIRTUALENV_PIP=23.1.2" >> $GITHUB_ENV
-          
-          # 3. Xóa sạch venv cũ để Buildozer tạo mới hoàn toàn
-          # Dùng lệnh find để xóa cho chắc chắn
-          find . -name "venv" -type d -exec rm -rf {} +
+      
+          # ✅ Xóa cache cũ để Buildozer tạo venv sạch hoàn toàn
           rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
+          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/.done_install_prerequisites_python
       - name: Build APK
         run: |
           # Dùng debug hoặc release tùy bạn
