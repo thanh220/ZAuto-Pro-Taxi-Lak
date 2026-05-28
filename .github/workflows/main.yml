@@ -64,14 +64,13 @@ jobs:
 
       - name: Install Build Tools
         run: |
+          # FIX 1: Dùng python -m pip install pip==23.1.2 (không dùng --upgrade)
           python -m pip install pip==23.1.2
           pip install \
             setuptools==68.2.2 \
             wheel==0.41.2 \
             Cython==0.29.36
           # FIX 5: Dùng python-for-android==2023.09.16 khớp với p4a.branch
-          #        Bỏ python-for-android==2024.1.21 vì version đó
-          #        mặc định hostpython=3.14 và Pillow=11.3.0
           pip install \
             buildozer==1.5.0 \
             python-for-android==2023.09.16 \
@@ -79,16 +78,29 @@ jobs:
 
       - name: Create required directories
         run: |
+          # Bổ sung tạo thư mục trước khi build
           mkdir -p java res/xml
           if [ ! -f res/xml/file_paths.xml ] && [ -f file_paths.xml ]; then
             cp file_paths.xml res/xml/file_paths.xml
           fi
 
-      - name: Clean Old Build Cache
+      - name: Clean Old Build Cache & Venv
         run: |
-          rm -rf .buildozer bin
+          # FIX 3: Xóa trực tiếp thư mục thay vì dùng lệnh find
+          rm -rf .buildozer bin venv .venv env
 
-      - name: Build APK
+      - name: Build APK (Pass 1 - Fetch p4a)
+        run: |
+          # FIX 2 (Pass 1): Chạy buildozer để tải p4a về trước khi patch
+          buildozer android p4a -- --version || true
+
+      - name: Apply p4a Patch
+        run: |
+          # FIX 2 (Pass 2): Áp dụng file patch của bạn tại đây
+          # Ví dụ: patch -p1 -d .buildozer/android/platform/python-for-android < path/to/your/fix.patch
+          echo "Ready to apply patch to p4a source."
+
+      - name: Build APK (Final)
         run: |
           buildozer android debug
 
