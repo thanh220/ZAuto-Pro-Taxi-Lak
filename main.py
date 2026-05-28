@@ -1473,15 +1473,22 @@ class ZAutoProApp(MDApp):
                 self.safe_toast("Đang đồng bộ dữ liệu Zalo...")
                 ZWebManager = autoclass('org.zauto.ZaloWebManager')
                 
-                # Gọi hàm Java để hút Cookie
+                # Gọi Java để hút đủ Bộ 3 Thần Thánh
                 raw_cookie = ZWebManager.extractZaloCookie()
+                imei = ZWebManager.getImei()
+                user_agent = ZWebManager.getUserAgent()
                 
                 if not raw_cookie or "zpw_sek" not in raw_cookie:
                     self.safe_toast("❌ Bạn chưa đăng nhập Zalo trên khung Web bên dưới!")
                     return
                     
-                # Gửi Cookie tươi xuống cho API Node.js (cổng /api/cookie_login bạn vừa tạo ở server.js)
-                res = requests.post("http://127.0.0.1:5000/api/cookie_login", json={"raw_cookie": raw_cookie}, timeout=15)
+                # Đóng gói cả 3 thông số gửi xuống Node.js
+                payload = {
+                    "raw_cookie": raw_cookie,
+                    "imei": imei,
+                    "user_agent": user_agent
+                }
+                res = requests.post("http://127.0.0.1:5000/api/cookie_login", json=payload, timeout=15)
                 
                 if res.status_code == 200:
                     self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
