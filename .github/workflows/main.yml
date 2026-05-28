@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -26,20 +27,16 @@ jobs:
       - name: Download Node.js ARM Binaries
         run: |
           mkdir -p nodejs_backend/bin
-          
           echo "Downloading ARM64 NodeJS..."
           curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-arm64.tar.xz
           tar -xf node-v20.11.1-linux-arm64.tar.xz
           cp node-v20.11.1-linux-arm64/bin/node nodejs_backend/bin/node_arm64
-          
           echo "Downloading ARMv7 NodeJS..."
           curl -LO https://unofficial-builds.nodejs.org/download/release/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
           tar -xf node-v20.11.1-linux-armv7l.tar.xz
           cp node-v20.11.1-linux-armv7l/bin/node nodejs_backend/bin/node_armv7
-          
           chmod +x nodejs_backend/bin/node_arm64
           chmod +x nodejs_backend/bin/node_armv7
-          
           rm -rf node-v20.11.1-linux-*
 
       - name: Install Node.js Dependencies
@@ -51,50 +48,45 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            git \
-            zip \
-            unzip \
-            openjdk-17-jdk \
-            autoconf \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo5 \
-            cmake \
-            libffi-dev \
-            libssl-dev \
-            build-essential \
-            patch \
-            libjpeg-dev \
-            libpng-dev \
-            ffmpeg \
-            libsdl2-dev \
-            libsdl2-image-dev \
-            libsdl2-mixer-dev \
-            libsdl2-ttf-dev \
-            python3.11-venv \
-            python3.11-dev
+            git zip unzip openjdk-17-jdk \
+            autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+            cmake libffi-dev libssl-dev build-essential patch \
+            libjpeg-dev libpng-dev ffmpeg \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            python3.11-venv python3.11-dev
+
+      # FIX 4: Đặt JAVA_HOME trỏ đúng Java 17
+      - name: Set JAVA_HOME
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/temurin-17-jdk-amd64/bin" >> $GITHUB_PATH
 
       - name: Install Build Tools
         run: |
-          python -m pip install --upgrade pip==23.1.2
-          
+          python -m pip install pip==23.1.2
           pip install \
             setuptools==68.2.2 \
             wheel==0.41.2 \
             Cython==0.29.36
-            
+          # FIX 5: Dùng python-for-android==2023.09.16 khớp với p4a.branch
+          #        Bỏ python-for-android==2024.1.21 vì version đó
+          #        mặc định hostpython=3.14 và Pillow=11.3.0
           pip install \
             buildozer==1.5.0 \
-            python-for-android==2024.1.21 \
+            python-for-android==2023.09.16 \
             virtualenv==20.24.5
+
+      - name: Create required directories
+        run: |
+          mkdir -p java res/xml
+          if [ ! -f res/xml/file_paths.xml ] && [ -f file_paths.xml ]; then
+            cp file_paths.xml res/xml/file_paths.xml
+          fi
 
       - name: Clean Old Build Cache
         run: |
-          rm -rf .buildozer
-          rm -rf bin
+          rm -rf .buildozer bin
 
       - name: Build APK
         run: |
