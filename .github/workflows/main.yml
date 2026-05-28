@@ -42,12 +42,11 @@ jobs:
           cd nodejs_backend
           npm install
 
-      # 5. Cài đặt thư viện hệ thống Ubuntu (Đã thêm python3-venv và python3-dev)
+     # 5. Cài đặt thư viện hệ thống Ubuntu
       - name: Install System Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev build-essential patch libjpeg-dev libpng-dev ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev python3-venv python3-dev
-
+          sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev build-essential patch libjpeg-dev libpng-dev ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev python3.11-venv python3.11-dev
       # 6. Cài đặt các công cụ Python cơ bản
       - name: Setup Build Tools
         run: |
