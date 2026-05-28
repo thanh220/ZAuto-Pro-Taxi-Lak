@@ -54,6 +54,7 @@ android.enable_androidx = True
 # JAVA / RES
 # =====================================================
 android.add_java_dir = java
+android.add_src = java_src
 android.add_res = ./res
 
 # =====================================================
