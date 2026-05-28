@@ -608,6 +608,23 @@ MDScreen:
                                     pos_hint: {"center_y": .5}
                                     on_release: inp_reply.text = app.Clipboard.paste()
                                 
+                            # ✅ BỔ SUNG Ô NHẬP API KEY OCR TẠI ĐÂY
+                            MDBoxLayout:
+                                orientation: "horizontal"
+                                size_hint_y: None
+                                height: "50dp"
+                                spacing: "10dp"
+                                TextInput:
+                                    id: inp_ocr_key
+                                    hint_text: "Mã API Key OCR (Đọc ảnh)"
+                                    multiline: False
+                                    background_color: 0.9, 1, 0.9, 1  # Đổi nhẹ màu xanh cho nổi bật
+                                    foreground_color: 0, 0, 0, 1
+                                MDIconButton:
+                                    icon: "content-paste"
+                                    pos_hint: {"center_y": .5}
+                                    on_release: inp_ocr_key.text = app.Clipboard.paste()
+
                             TextInput:
                                 id: inp_delay
                                 hint_text: "Khoảng cách chốt 2 cuốc (giây)"
@@ -627,6 +644,17 @@ MDScreen:
                             background_normal: ''
                             background_color: 0.1, 0.5, 0.8, 1
                             on_release: app.save_config()
+
+                        # ✅ BỔ SUNG NÚT HƯỚNG DẪN Ở ĐÂY
+                        Button:
+                            text: "📖 HƯỚNG DẪN SỬ DỤNG & LẤY MÃ OCR"
+                            size_hint_x: 1
+                            size_hint_y: None
+                            height: "45dp"
+                            bold: True
+                            background_normal: ''
+                            background_color: 0.8, 0.4, 0.1, 1
+                            on_release: app.show_guide_popup()
 
                         MDBoxLayout:
                             orientation: "vertical"
@@ -1592,7 +1620,24 @@ class ZAutoProApp(MDApp):
                                     'raw_data': data.get('raw_data', {})
                                 }
                             ))
-
+                    # ✅ XỬ LÝ TIN NHẮN ẢNH (BẮT CUỐC QUA HÌNH CHỤP)
+                    elif action == 'WEB_NEW_PHOTO':
+                        if getattr(self, 'is_radar_running', False):
+                            group_id = data.get('group_id', '')
+                            sender = data.get('sender_name', '')
+                            photo_url = data.get('photo_url', '')
+                            msg_id = data.get('msg_id', '')
+                            is_group = data.get('is_group', True)
+                            raw_data = data.get('raw_data', {})
+                            
+                            # Nếu có link ảnh, ném nó sang một luồng riêng để dịch chữ (OCR)
+                            # Tránh làm đơ giao diện điện thoại trong lúc chờ dịch
+                            if photo_url:
+                                threading.Thread(
+                                    target=self._process_image_ocr_thread,
+                                    args=(photo_url, group_id, sender, msg_id, is_group, raw_data),
+                                    daemon=True
+                                ).start()
         except requests.exceptions.RequestException:
             pass
         except Exception as e:
@@ -1793,6 +1838,7 @@ class ZAutoProApp(MDApp):
             if ids.get('inp_nhan'): ids.inp_nhan.text = self.config_data.get('nhan', '')
             if ids.get('inp_loai'): ids.inp_loai.text = self.config_data.get('loai', '')
             if ids.get('inp_reply'): ids.inp_reply.text = self.config_data.get('reply_msg', 'Ok nhận')
+            if ids.get('inp_ocr_key'): ids.inp_ocr_key.text = self.config_data.get('ocr_api_key', 'K86976001788957')
             if ids.get('inp_delay'): ids.inp_delay.text = self.config_data.get('global_delay', '30')
             if ids.get('sw_filter'): ids.sw_filter.active = self.config_data.get('sw_filter', False)
             
@@ -1843,6 +1889,7 @@ class ZAutoProApp(MDApp):
             if ids.get('inp_nhan'): self.config_data['nhan'] = ids.inp_nhan.text
             if ids.get('inp_loai'): self.config_data['loai'] = ids.inp_loai.text
             if ids.get('inp_reply'): self.config_data['reply_msg'] = ids.inp_reply.text
+            if ids.get('inp_ocr_key'): self.config_data['ocr_api_key'] = ids.inp_ocr_key.text.strip()
             if ids.get('inp_delay'): self.config_data['global_delay'] = ids.inp_delay.text
             if ids.get('sw_filter'): self.config_data['sw_filter'] = ids.sw_filter.active
             if ids.get('sw_auto_main'): self.config_data['sw_auto'] = ids.sw_auto_main.active
@@ -2147,7 +2194,9 @@ class ZAutoProApp(MDApp):
         except Exception as e:
             logger.error(f"Lỗi remove_ride_by_key: {e}")
 
-    
+    def show_guide_popup(self):
+        popup = GuidePopup()
+        popup.open()
 
     @run_on_ui_thread
     def _hide_webview_overlay(self):
@@ -2245,6 +2294,108 @@ class ZAutoProApp(MDApp):
             UrlRequest(no_cache_url, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
         except Exception as e:
             logger.error(f"Lỗi gọi UrlRequest: {e}")
+    def _process_image_ocr_thread(self, photo_url, group_id, sender, msg_id, is_group, raw_data):
+        """Luồng ngầm: Nhờ máy chủ OCR.space đọc chữ trong ảnh"""
+        import requests
+        try:
+            api_key = self.config_data.get('ocr_api_key', '').strip()
+            if not api_key:
+                api_key = "K86976001788957"
+            
+            url = f"https://api.ocr.space/parse/imageurl?apikey={api_key}&url={photo_url}&language=vie&isOverlayRequired=false"
 
+            res = requests.get(url, timeout=15)
+            if res.status_code == 200:
+                result = res.json()
+                
+                # Kiểm tra nếu đọc thành công và có chữ
+                if not result.get('IsErroredOnProcessing') and result.get('ParsedResults'):
+                    text_found = result['ParsedResults'][0].get('ParsedText', '').strip()
+
+                    if text_found:
+                        # Đã đọc được chữ -> Biến nó thành một tin nhắn chữ bình thường
+                        full_msg = f"{sender}: [Ảnh] {text_found}" if sender else f"[Ảnh] {text_found}"
+
+                        # Đẩy vào hàng đợi (Queue) để Radar bắt cuốc quét Regex như tin text
+                        self.msg_queue.put_nowait((
+                            'WEB_NEW_MSG',
+                            {
+                                'group': group_id,
+                                'msg': full_msg,
+                                'msg_id': msg_id,
+                                'conversation_id': group_id,
+                                'is_group': is_group,
+                                'raw_data': raw_data # Gửi kèm raw_data để lỡ chốt cuốc thì Quote đè đúng lên bức ảnh đó
+                            }
+                        ))
+                        logger.info(f"📷 Đã dịch OCR thành công: {text_found[:50]}...")
+        except Exception as e:
+            logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")     
+class GuidePopup(Popup):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.title = "📖 BÍ KÍP SỬ DỤNG ZAUTO VIP"
+        self.size_hint = (0.95, 0.85) # Rộng 95%, Cao 85% màn hình
+        self.background = ""  
+        self.background_color = (1, 1, 1, 1) 
+        self.title_color = (0, 0, 0, 1)      
+        self.separator_color = (0.1, 0.5, 0.8, 1)
+
+        root_scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+        main_layout = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(15), size_hint_y=None)
+        main_layout.bind(minimum_height=main_layout.setter('height'))
+
+        guide_text = """[b]1. TÍNH NĂNG ĐỌC ẢNH (OCR)[/b]
+• App có thể đọc chữ trong ảnh chụp màn hình cuốc xe.
+• Nhấp nút xanh bên dưới để vào trang web đăng ký. 
+• Điền Email -> Chọn "Vietnamese" -> Bấm Đăng ký.
+• Vào hộp thư Email, copy đoạn mã API Key (VD: K8697...).
+• Quay lại app, bấm nút dán vào ô "Mã API Key OCR".
+• Bấm LƯU CẤU HÌNH.
+
+[b]2. TỪ KHÓA BẮT CUỐC[/b]
+• [b]Từ khóa Nhận:[/b] Nếu tin nhắn CÓ chứa từ này, app sẽ bắt. (VD: Nội bài, ghép, tiện chuyến).
+• [b]Từ khóa Loại trừ:[/b] Nếu tin nhắn CÓ chứa từ này, app BỎ QUA lập tức. (VD: full, đã đủ).
+• Viết cách nhau bằng dấu phẩy (,). 
+• Muốn app bắt MỌI TIN NHẮN (không cần từ khóa), hãy TẮT công tắc "Chỉ nhận tin chứa Từ Khóa".
+
+[b]3. TÍNH NĂNG AUTO (CHỐT TỰ ĐỘNG)[/b]
+• Nếu Bật: App thấy cuốc là tự động gửi tin nhắn chốt.
+• Nội dung chốt: Điền ở ô "Nội dung trả lời tự động".
+• Khoảng cách Delay: Tránh Zalo khóa mõm nếu chốt liên tục. Mặc định 30 giây.
+
+[b]4. HOẠT ĐỘNG NGẦM[/b]
+• Luôn bật "CHỐNG NGỦ ĐÔNG" để app không bị tắt khi vuốt ra ngoài lướt web, tiktok.
+"""
+        # Hộp chứa chữ tự động co giãn chiều cao
+        lbl = Label(
+            text=guide_text, markup=True, color=(0.15, 0.15, 0.15, 1), 
+            font_size='14sp', size_hint_y=None, halign='left', valign='top'
+        )
+        lbl.bind(
+            width=lambda *x: lbl.setter('text_size')(lbl, (lbl.width, None)),
+            texture_size=lambda *x: lbl.setter('height')(lbl, lbl.texture_size[1])
+        )
+        main_layout.add_widget(lbl)
+
+        # Nút đăng ký web
+        btn_ocr = Button(
+            text="🌐 MỞ TRANG ĐĂNG KÝ MÃ OCR", size_hint_y=None, height=dp(45), 
+            background_normal='', background_color=(0.1, 0.6, 0.2, 1), bold=True
+        )
+        import webbrowser
+        btn_ocr.bind(on_release=lambda x: webbrowser.open("https://ocr.space/ocrapi/freekey"))
+        main_layout.add_widget(btn_ocr)
+
+        # Nút đóng
+        btn_close = Button(
+            text="ĐÓNG HƯỚNG DẪN", size_hint_y=None, height=dp(45), 
+            background_normal='', background_color=(0.8, 0.2, 0.2, 1), bold=True
+        )
+        btn_close.bind(on_release=self.dismiss)
+        main_layout.add_widget(btn_close)
+
+        root_scroll.add_widget(main_layout)
+        self.content = root_scroll
 if __name__ == '__main__':
     ZAutoProApp().run()
