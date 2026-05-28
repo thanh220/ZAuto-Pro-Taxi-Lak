@@ -8,7 +8,7 @@ package.domain = org.zauto
 source.dir = .
 
 source.include_exts = py,png,jpg,jpeg,kv,json,xml,java,db,ttf,otf,txt,html,css,js,bin
-
+source.include_patterns = assets/*,nodejs_backend/*,nodejs_backend/bin/*
 version = 7.0
 
 orientation = portrait
