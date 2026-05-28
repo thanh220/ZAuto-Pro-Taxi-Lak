@@ -21,7 +21,7 @@ version = 7.0
 # =====================================================
 
 # Thêm hostpython3==3.11.9 để ép trình biên dịch dùng bản cũ tương thích với Kivy 2.3.0
-requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
+requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0,https://github.com/kivymd/KivyMD/archive/refs/tags/1.1.1.zip,pillow==9.5.0,pyjnius,requests,plyer
 
 # =====================================================
 # SPLASH & ICON
