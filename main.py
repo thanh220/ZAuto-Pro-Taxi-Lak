@@ -881,12 +881,11 @@ class ZAutoProApp(MDApp):
                 # Phát hiện kiến trúc CPU của điện thoại
                 cpu_arch = std_platform.machine().lower()
                 
-                # Chọn đúng file chạy (Binary)
                 if 'aarch64' in cpu_arch or 'arm64' in cpu_arch:
-                    node_file = 'node_arm64'
+                    node_file = 'node_arm64.bin' # <-- Thêm .bin vào đây
                     logger.info("📱 Phát hiện CPU 64-bit -> Dùng Node.js ARM64")
                 else:
-                    node_file = 'node_armv7'
+                    node_file = 'node_armv7.bin' # <-- Thêm .bin vào đây
                     logger.info("📱 Phát hiện CPU 32-bit -> Dùng Node.js ARMv7")
                     
                 node_bin_path = os.path.join(app_dir, 'nodejs_backend', 'bin', node_file)
