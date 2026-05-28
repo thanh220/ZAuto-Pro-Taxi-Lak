@@ -21,7 +21,7 @@ version = 7.0
 # =====================================================
 
 # FIX: Kivy updated to 2.3.0 for better Python 3.11.4 & NDK 25b compatibility
-requirements = python3==3.11.9,kivy==2.3.0,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
+requirements = python3,kivy==2.3.0,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
 
 # =====================================================
 # SPLASH & ICON
