@@ -12,11 +12,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- THÊM BƯỚC NÀY ĐỂ ÉP GITHUB ACTIONS HOST DÙNG PYTHON 3.11.4 ---
+      # 1. Thiết lập Python
       - name: Set up Python 3.11.4
         uses: actions/setup-python@v5
         with:
           python-version: '3.11.4'
+
+      # 2. Cài đặt Node.js để Build API Zalo
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. Tải các thư viện API Zalo (npm install)
+      - name: Install Node.js Dependencies
+        run: |
+          cd nodejs_backend
+          npm install
 
       - name: Install System Dependencies
         run: |
@@ -28,10 +40,15 @@ jobs:
           python -m pip install --upgrade pip==23.1.2
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
-          # Quan trọng: Ép buildozer dùng pip cũ ngay từ khi tạo venv
           echo "VIRTUALENV_PIP=23.1.2" >> $GITHUB_ENV
 
       - name: Build APK
         run: |
-          # Vẫn sử dụng key cache v58 như cũ
+          # Dùng cache của buildozer để build nhanh hơn ở các lần sau
           buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZAuto-VIP-APK
+          path: bin/*.apk
