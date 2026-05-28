@@ -6,7 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-# Tinh hoa Bầu Cua 1: Ép chạy Node 24 để xóa cảnh báo vàng
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -18,7 +17,6 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      # Tinh hoa Bầu Cua 2: Cache Buildozer để các lần sau build siêu nhanh
       - name: Cache Buildozer
         uses: actions/cache@v4
         with:
@@ -30,7 +28,6 @@ jobs:
           restore-keys: |
             buildozer-zauto-${{ runner.os }}-
 
-      # Tinh hoa Bầu Cua 3: Dọn dẹp ổ cứng máy ảo (Tránh lỗi out of space)
       - name: Cleanup System
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
@@ -38,21 +35,19 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11.4"
+          python-version: "3.11"   # ← SỬA: bỏ .4, lấy latest 3.11.x
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Download Node.js ARM Binaries (Cho ZAuto Backend)
+      - name: Download Node.js ARM Binaries
         run: |
           mkdir -p nodejs_backend/bin
-          echo "Downloading ARM64 NodeJS..."
           curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-arm64.tar.xz
           tar -xf node-v20.11.1-linux-arm64.tar.xz
           cp node-v20.11.1-linux-arm64/bin/node nodejs_backend/bin/node_arm64
-          echo "Downloading ARMv7 NodeJS..."
           curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
           tar -xf node-v20.11.1-linux-armv7l.tar.xz
           cp node-v20.11.1-linux-armv7l/bin/node nodejs_backend/bin/node_armv7
@@ -84,9 +79,10 @@ jobs:
 
       - name: Install Build Tools
         run: |
-          # Thả cho pip cập nhật lên bản mới nhất ngay từ đầu để không bị sập venv
+          # Nâng pip host lên bản sạch trước
           python -m pip install --upgrade pip
-          pip install Cython==0.29.36 buildozer python-for-android virtualenv setuptools wheel
+          # Pin buildozer + p4a version ổn định
+          pip install Cython==0.29.36 buildozer==1.5.0 "python-for-android==2024.1.21" virtualenv setuptools wheel
 
       - name: Create required directories
         run: |
@@ -95,7 +91,6 @@ jobs:
             cp file_paths.xml res/xml/file_paths.xml
           fi
 
-      # Tinh hoa Bầu Cua 4: Tự động tạo Keystore (Nếu chưa có)
       - name: Generate Keystore
         run: |
           if [ ! -f zauto.keystore ]; then
@@ -110,17 +105,16 @@ jobs:
 
       - name: Build APK (Release)
         run: |
-          # Chấp nhận License
           mkdir -p ~/.android && touch ~/.android/repositories.cfg
           yes | buildozer android p4a --accept-sdk-license || true
-          
-          # Truyền mật khẩu Keystore (Khớp với buildozer.spec của bạn)
+
           export P4A_RELEASE_KEYSTORE=$(pwd)/zauto.keystore
           export P4A_RELEASE_KEYSTORE_PASSWD=zauto123
           export P4A_RELEASE_KEYALIAS_PASSWD=zauto123
           export P4A_RELEASE_KEYALIAS=zauto
           export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
-          
+          export PIP_NO_BUILD_ISOLATION=1   # ← THÊM MỚI
+
           buildozer -v android release
 
       - name: Upload APK
