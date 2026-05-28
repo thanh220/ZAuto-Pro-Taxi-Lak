@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+# Tinh hoa Bầu Cua 1: Ép chạy Node 24 để xóa cảnh báo vàng
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -13,6 +17,23 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
+
+      # Tinh hoa Bầu Cua 2: Cache Buildozer để các lần sau build siêu nhanh
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+            ~/.gradle
+          key: buildozer-zauto-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            buildozer-zauto-${{ runner.os }}-
+
+      # Tinh hoa Bầu Cua 3: Dọn dẹp ổ cứng máy ảo (Tránh lỗi out of space)
+      - name: Cleanup System
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,7 +45,7 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Download Node.js ARM Binaries
+      - name: Download Node.js ARM Binaries (Cho ZAuto Backend)
         run: |
           mkdir -p nodejs_backend/bin
           echo "Downloading ARM64 NodeJS..."
@@ -49,63 +70,62 @@ jobs:
           sudo apt update
           sudo apt install -y \
             git zip unzip openjdk-17-jdk \
-            autoconf libtool pkg-config \
+            autoconf automake libtool pkg-config \
             zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
             cmake libffi-dev libssl-dev build-essential patch \
             libjpeg-dev libpng-dev ffmpeg \
             libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
             python3.11-venv python3.11-dev
 
-      # FIX 4: Đặt JAVA_HOME trỏ đúng Java 17
       - name: Set JAVA_HOME
         run: |
-          echo "JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64" >> $GITHUB_ENV
-          echo "/usr/lib/jvm/temurin-17-jdk-amd64/bin" >> $GITHUB_PATH
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
 
       - name: Install Build Tools
         run: |
-          # FIX 1: Dùng python -m pip install pip==23.1.2 (không dùng --upgrade)
           python -m pip install pip==23.1.2
-          pip install \
-            setuptools==68.2.2 \
-            wheel==0.41.2 \
-            Cython==0.29.36
-          # FIX 5: Dùng python-for-android==2023.09.16 khớp với p4a.branch
-          pip install \
-            buildozer==1.5.0 \
-            python-for-android==2023.09.16 \
-            virtualenv==20.24.5
+          pip install Cython==0.29.36 setuptools==68.2.2 wheel==0.41.2
+          # Giữ p4a 2023 ổn định cho ZAuto
+          pip install buildozer==1.5.0 python-for-android==2023.09.16 virtualenv==20.24.5
 
       - name: Create required directories
         run: |
-          # Bổ sung tạo thư mục trước khi build
           mkdir -p java res/xml
           if [ ! -f res/xml/file_paths.xml ] && [ -f file_paths.xml ]; then
             cp file_paths.xml res/xml/file_paths.xml
           fi
 
-      - name: Clean Old Build Cache & Venv
+      # Tinh hoa Bầu Cua 4: Tự động tạo Keystore (Nếu chưa có)
+      - name: Generate Keystore
         run: |
-          # FIX 3: Xóa trực tiếp thư mục thay vì dùng lệnh find
-          rm -rf .buildozer bin venv .venv env
+          if [ ! -f zauto.keystore ]; then
+            keytool -genkey -v \
+              -keystore zauto.keystore \
+              -alias zauto \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=ZAuto, OU=VIP, O=Thien, L=DakLak, ST=VN, C=VN" \
+              -storepass zauto123 \
+              -keypass zauto123
+          fi
 
-      - name: Build APK (Pass 1 - Fetch p4a)
+      - name: Build APK (Release)
         run: |
-          # FIX 2 (Pass 1): Chạy buildozer để tải p4a về trước khi patch
-          buildozer android p4a -- --version || true
-
-      - name: Apply p4a Patch
-        run: |
-          # FIX 2 (Pass 2): Áp dụng file patch của bạn tại đây
-          # Ví dụ: patch -p1 -d .buildozer/android/platform/python-for-android < path/to/your/fix.patch
-          echo "Ready to apply patch to p4a source."
-
-      - name: Build APK (Final)
-        run: |
-          buildozer android debug
+          # Chấp nhận License
+          mkdir -p ~/.android && touch ~/.android/repositories.cfg
+          yes | buildozer android p4a --accept-sdk-license || true
+          
+          # Truyền mật khẩu Keystore (Khớp với buildozer.spec của bạn)
+          export P4A_RELEASE_KEYSTORE=$(pwd)/zauto.keystore
+          export P4A_RELEASE_KEYSTORE_PASSWD=zauto123
+          export P4A_RELEASE_KEYALIAS_PASSWD=zauto123
+          export P4A_RELEASE_KEYALIAS=zauto
+          export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
+          
+          buildozer -v android release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZAuto-VIP-APK
+          name: ZAuto-VIP-Release-APK
           path: bin/*.apk
