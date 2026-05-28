@@ -3,6 +3,29 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Zalo, LoginQRCallbackEventType } from 'zalo-api-final';
+import { CookieJar } from 'tough-cookie'; // ✅ THÊM THƯ VIỆN ĐỂ BẺ KHÓA
+
+// ─────────────────────────────────────────────
+// ✅ BẢN VÁ LỖI COOKIE ZALO (CHỐNG LỖI "Cookie not in this host's domain")
+// ─────────────────────────────────────────────
+const originalSetCookie = CookieJar.prototype.setCookie;
+CookieJar.prototype.setCookie = function(cookie, url, options, cb) {
+    // Nếu Zalo trả nhầm tên miền, tự động bẻ cong nó về đúng chuẩn
+    if (typeof url === 'string' && url.includes('id.zalo.me')) {
+        url = url.replace('id.zalo.me', 'chat.zalo.me');
+    }
+    return originalSetCookie.call(this, cookie, url, options, cb);
+};
+
+const originalSetCookieSync = CookieJar.prototype.setCookieSync;
+CookieJar.prototype.setCookieSync = function(cookie, url, options) {
+    if (typeof url === 'string' && url.includes('id.zalo.me')) {
+        url = url.replace('id.zalo.me', 'chat.zalo.me');
+    }
+    return originalSetCookieSync.call(this, cookie, url, options);
+};
+
+// ─────────────────────────────────────────────
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -20,12 +43,8 @@ const zalo = new Zalo({
 
 let api = null;
 let eventQueue = [];
-// ✅ Biến lưu tạm Avatar và Tên Zalo của bạn
 let currentUserInfo = { name: 'ZAuto (Đã kết nối)', avatar: 'profile.jpg' };
 
-// ─────────────────────────────────────────────
-//  HÀM LƯU SESSION
-// ─────────────────────────────────────────────
 function saveSession() {
     try {
         const ctx = api.getContext();
@@ -33,7 +52,7 @@ function saveSession() {
             cookie: ctx.cookie.toJSON().cookies,
             imei: ctx.imei,
             userAgent: ctx.userAgent,
-            userInfo: currentUserInfo // ✅ LƯU PROFILE (TÊN, ẢNH) VÀO ĐÂY ĐỂ LẦN SAU KHÔNG BỊ MẤT
+            userInfo: currentUserInfo
         };
         fs.writeFileSync('cookie.json', JSON.stringify(sessionData, null, 2));
         console.log('✅ Đã lưu session và Profile vào cookie.json');
@@ -42,9 +61,6 @@ function saveSession() {
     }
 }
 
-// ─────────────────────────────────────────────
-//  HÀM KHỞI ĐỘNG LẮNG NGHE
-// ─────────────────────────────────────────────
 function startListener() {
     api.listener.on('connected', () => {
         console.log('🔌 WebSocket đã kết nối!');
@@ -148,17 +164,12 @@ function startListener() {
     console.log('👂 Đang lắng nghe tin nhắn Zalo...');
 }
 
-// ─────────────────────────────────────────────
-//  HÀM ĐĂNG NHẬP ZALO
-// ─────────────────────────────────────────────
 async function startZalo() {
     try {
-        // ── ĐĂNG NHẬP BẰNG COOKIE CŨ ──
         if (fs.existsSync('cookie.json')) {
             console.log('✅ Tìm thấy phiên đăng nhập cũ, đang đăng nhập...');
             const savedData = JSON.parse(fs.readFileSync('cookie.json', 'utf8'));
             
-            // ✅ Phục hồi Avatar và Tên đã lưu từ trước
             if (savedData.userInfo) {
                 currentUserInfo = savedData.userInfo;
             }
@@ -172,8 +183,6 @@ async function startZalo() {
             console.log('✅ Đăng nhập cookie thành công!');
             saveSession(); 
         }
-
-        // ── ĐĂNG NHẬP BẰNG QR ──
         else {
             console.log('⚠️ Chưa có phiên đăng nhập, đang tạo mã QR...');
             api = await zalo.loginQR(
@@ -198,17 +207,11 @@ async function startZalo() {
 
                     if (event.type === LoginQRCallbackEventType.QRCodeScanned) {
                         console.log('📱 Đã quét QR:', event.data.display_name);
-                        
-                        // ✅ LƯU AVATAR VÀ TÊN NGAY KHI QUÉT QR THÀNH CÔNG
                         currentUserInfo = { 
                             name: event.data.display_name, 
                             avatar: event.data.avatar 
                         };
-                        
-                        eventQueue.push({
-                            action: 'QR_SCANNED',
-                            data: currentUserInfo
-                        });
+                        eventQueue.push({ action: 'QR_SCANNED', data: currentUserInfo });
                     }
 
                     if (event.type === LoginQRCallbackEventType.QRCodeDeclined) {
@@ -221,13 +224,8 @@ async function startZalo() {
             console.log('✅ Đăng nhập QR thành công!');
         }
 
-        // ── BÁO PYTHON ĐĂNG NHẬP THÀNH CÔNG (GỬI KÈM AVATAR VÀ TÊN THẬT) ──
-        eventQueue.push({
-            action: 'LOGIN_SUCCESS',
-            data: currentUserInfo
-        });
+        eventQueue.push({ action: 'LOGIN_SUCCESS', data: currentUserInfo });
 
-        // ── LẤY DANH SÁCH NHÓM KÈM ẢNH ĐẠI DIỆN ──
         const groups = await api.getAllGroups();
         if (groups && groups.gridVerMap) {
             const groupIds = Object.keys(groups.gridVerMap);
@@ -236,29 +234,23 @@ async function startZalo() {
             let groupDetails = [];
             for (const gid of groupIds) {
                 try {
-                    // ✅ Lấy chi tiết từng nhóm (Tên + Link ảnh)
                     const info = await api.getGroupInfo(gid);
                     if (info) {
                         groupDetails.push({
                             id: gid,
                             name: info.groupName || info.grpName || info.name || `Nhóm ${gid}`,
-                            avatar: info.avatar || info.avt || 'profile.jpg' // Trả về ảnh nhóm thật
+                            avatar: info.avatar || info.avt || 'profile.jpg'
                         });
                     }
                 } catch (e) {
-                    // Nếu lỗi 1 nhóm nào đó thì dùng ảnh mặc định, tránh sập app
                     groupDetails.push({ name: gid, avatar: 'profile.jpg' });
                 }
             }
 
-            eventQueue.push({
-                action: 'GROUPS_DATA',
-                data: { groups: groupDetails }
-            });
+            eventQueue.push({ action: 'GROUPS_DATA', data: { groups: groupDetails } });
             console.log(`✅ Đã gửi danh sách ${groupIds.length} nhóm lên giao diện App!`);
         }
 
-        // ── BẮT ĐẦU LẮNG NGHE ──
         startListener();
 
     } catch (error) {
@@ -269,10 +261,6 @@ async function startZalo() {
         });
     }
 }
-
-// ─────────────────────────────────────────────
-//  API ENDPOINTS CHO PYTHON
-// ─────────────────────────────────────────────
 
 app.get('/api/events', (req, res) => {
     res.json({ events: eventQueue });
@@ -307,7 +295,6 @@ app.post('/api/reply', async (req, res) => {
         }
 
         const threadType = is_group ? 1 : 0;  
-        // Ép kiểu String(group_id) để đảm bảo không bị lỗi dữ liệu
         await api.sendMessage(messageContent, String(group_id), threadType);
         res.json({ status: 'success' });
 
@@ -331,9 +318,6 @@ app.post('/api/restart', async (req, res) => {
     }
 });
 
-// ─────────────────────────────────────────────
-//  KHỞI ĐỘNG SERVER
-// ─────────────────────────────────────────────
 app.listen(5000, '127.0.0.1', () => {
     console.log('⚡ Server chạy ở cổng 5000...');
     startZalo();
