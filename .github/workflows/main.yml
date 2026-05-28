@@ -52,21 +52,31 @@ jobs:
           sudo apt update
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev build-essential patch libjpeg-dev libpng-dev ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
 
-      - name: Setup Build Environment
+     - name: Setup Build Environment with Auto-Optimization
         run: |
-          # ✅ Dùng pip mới, KHÔNG ghim 23.1.2
-          python -m pip install --upgrade pip
+          # 1. Quét thông tin môi trường
+          echo "Đang quét môi trường..."
+          PYTHON_VER=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+          echo "Phiên bản Python: $PYTHON_VER"
+          
+          # 2. Tự động đưa ra phiên bản pip tương thích
+          # Nếu Python là 3.11, pip 23.1.2 là phiên bản "vàng" cho buildozer
+          if [ "$PYTHON_VER" == "3.11" ]; then
+            TARGET_PIP="23.1.2"
+          else
+            TARGET_PIP="latest"
+          fi
+          
+          echo "Phiên bản Pip phù hợp: $TARGET_PIP"
+          
+          # 3. Tự cấu hình và cài đặt
+          python -m pip install --upgrade pip==$TARGET_PIP
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
-      
-          # ✅ Đổi VIRTUALENV_PIP sang 24.0 (bản đã vá lỗi resolvelib)
-          echo "VIRTUALENV_PIP=24.0" >> $GITHUB_ENV
+          
+          # 4. Khóa cứng cấu hình để không bị tự update lại
+          echo "VIRTUALENV_PIP=$TARGET_PIP" >> $GITHUB_ENV
           echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> $GITHUB_ENV
-          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
-      
-          # ✅ Xóa cache cũ để Buildozer tạo venv sạch hoàn toàn
-          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
-          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/.done_install_prerequisites_python
       - name: Build APK
         run: |
           # Dùng debug hoặc release tùy bạn
