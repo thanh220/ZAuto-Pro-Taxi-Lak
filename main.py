@@ -904,7 +904,10 @@ class ZAutoProApp(MDApp):
             # ==========================================
             try:
                 # Lấy thư mục gốc chứa file app của Kivy trên điện thoại
-                app_dir = os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files/app')
+                app_dir = os.path.join(
+                    os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'),
+                    'app'
+                )
                 
                 # Phát hiện kiến trúc CPU của điện thoại
                 cpu_arch = std_platform.machine().lower()
@@ -928,7 +931,6 @@ class ZAutoProApp(MDApp):
                 # Cấp quyền thực thi cho file node
                 os.system(f"chmod +x {node_bin_path}")
                 
-                # Chạy tiến trình ngầm Node.js
                 self.node_process = subprocess.Popen(
                     [node_bin_path, server_js_path],
                     cwd=backend_dir,
@@ -936,6 +938,22 @@ class ZAutoProApp(MDApp):
                     stderr=subprocess.PIPE
                 )
                 logger.info(f"✅ Đã khởi chạy Node.js Backend ({node_file}) thành công!")
+
+                # ✅ THÊM: Đọc stderr để biết Node.js lỗi gì
+                def _read_node_stderr():
+                    for line in self.node_process.stderr:
+                        try:
+                            logger.error(f"[NODE ERR] {line.decode('utf-8', errors='ignore').strip()}")
+                        except: pass
+
+                def _read_node_stdout():
+                    for line in self.node_process.stdout:
+                        try:
+                            logger.info(f"[NODE] {line.decode('utf-8', errors='ignore').strip()}")
+                        except: pass
+
+                threading.Thread(target=_read_node_stderr, daemon=True).start()
+                threading.Thread(target=_read_node_stdout, daemon=True).start()
             except Exception as e:
                 logger.error(f"❌ Lỗi khởi chạy Node.js: {e}")
 
