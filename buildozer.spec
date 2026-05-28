@@ -92,7 +92,7 @@ android.extra_manifest_application = %(source.dir)s/manifest_services.xml
 # SERVICES
 # =====================================================
 # ĐÃ VÔ HIỆU HÓA: Dòng này được tắt để tránh xung đột với file manifest_services.xml
-services = ZaloForegroundService:java
+# services = ZaloForegroundService:java
 
 # =====================================================
 # OPENGL
