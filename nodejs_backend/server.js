@@ -12,47 +12,74 @@ const require = createRequire(import.meta.url);
 
 function applyCookiePatch(CookieJarClass) {
     if (!CookieJarClass || CookieJarClass.__patched) return;
-    
+
+    // ── PATCH setCookie ──────────────────────────────────────
     const originalSetCookie = CookieJarClass.prototype.setCookie;
     CookieJarClass.prototype.setCookie = function(cookie, url, options, cb) {
-        // 1. Ép Node.js bỏ qua tất cả các lỗi bảo mật Cookie
-        if (typeof options === 'function') {
-            cb = options;
-            options = { ignoreError: true };
-        } else {
-            options = options || {};
-            options.ignoreError = true;
-        }
-
-        // 2. Chặn đứng URL Object, ép bẻ cong thành String
-        let urlStr = typeof url === 'string' ? url : (url && url.href ? url.href : String(url));
-        if (urlStr.includes('id.zalo.me')) {
-            url = urlStr.replace('id.zalo.me', 'chat.zalo.me'); // Dùng link giả để Zalo bị lừa
-        }
-        
+        if (typeof options === 'function') { cb = options; options = {}; }
+        options = options || {};
+        options.ignoreError = true;
+        let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        if (urlStr.includes('id.zalo.me')) url = urlStr.replace('id.zalo.me', 'chat.zalo.me');
         return originalSetCookie.call(this, cookie, url, options, cb);
     };
 
     const originalSetCookieSync = CookieJarClass.prototype.setCookieSync;
     CookieJarClass.prototype.setCookieSync = function(cookie, url, options) {
         options = options || {};
-        options.ignoreError = true; // Ép bỏ qua lỗi
-        
-        let urlStr = typeof url === 'string' ? url : (url && url.href ? url.href : String(url));
-        if (urlStr.includes('id.zalo.me')) {
-            url = urlStr.replace('id.zalo.me', 'chat.zalo.me');
-        }
+        options.ignoreError = true;
+        let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        if (urlStr.includes('id.zalo.me')) url = urlStr.replace('id.zalo.me', 'chat.zalo.me');
         return originalSetCookieSync.call(this, cookie, url, options);
     };
-    
+
+    // ── PATCH getCookies (MỚI - QUAN TRỌNG) ─────────────────
+    const originalGetCookies = CookieJarClass.prototype.getCookies;
+    CookieJarClass.prototype.getCookies = function(url, options, cb) {
+        if (typeof options === 'function') { cb = options; options = {}; }
+        options = options || {};
+        let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
+        return originalGetCookies.call(this, altUrl, options, cb);
+    };
+
+    const originalGetCookiesSync = CookieJarClass.prototype.getCookiesSync;
+    CookieJarClass.prototype.getCookiesSync = function(url, options) {
+        options = options || {};
+        let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
+        return originalGetCookiesSync.call(this, altUrl, options);
+    };
+
+    // ── PATCH getCookieString (MỚI) ──────────────────────────
+    const originalGetCookieString = CookieJarClass.prototype.getCookieString;
+    CookieJarClass.prototype.getCookieString = function(url, options, cb) {
+        if (typeof options === 'function') { cb = options; options = {}; }
+        options = options || {};
+        let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
+        return originalGetCookieString.call(this, altUrl, options, cb);
+    };
+
+    const originalGetCookieStringSync = CookieJarClass.prototype.getCookieStringSync;
+    CookieJarClass.prototype.getCookieStringSync = function(url, options) {
+        options = options || {};
+        let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
+        return originalGetCookieStringSync.call(this, altUrl, options);
+    };
+
     CookieJarClass.__patched = true;
     console.log("✅ ZAUTO: Kích hoạt khiên chống lỗi Zalo API (Max Level)!");
 }
 
+// Gọi hàm vá lỗi
 try { applyCookiePatch(require('zalo-api-final/node_modules/tough-cookie').CookieJar); } catch (e) {}
 try { applyCookiePatch(require('tough-cookie').CookieJar); } catch (e) {}
-// ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// KHỞI TẠO BIẾN VÀ EXPRESS (ĐOẠN BẠN BỊ XÓA NHẦM)
+// ─────────────────────────────────────────────
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
@@ -76,6 +103,7 @@ function saveSession() {
         console.error('❌ Lỗi lưu session:', e);
     }
 }
+// ─────────────────────────────────────────────
 
 function startListener() {
     api.listener.on('connected', () => console.log('🔌 WebSocket đã kết nối!'));
