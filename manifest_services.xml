@@ -6,9 +6,21 @@
             android:foregroundServiceType="dataSync"
             android:exported="true" />
             
-        <service 
+        <service
             android:name="org.zauto.ZaloForegroundService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false" />
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="dataSync" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="org.zauto.zauto.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
