@@ -120,7 +120,7 @@ source.exclude_patterns = *.pyc,*.pyo,*.log,*.tmp
 # PYTHON FOR ANDROID
 # =====================================================
 
-# p4a.branch = master
+p4a.branch = develop
 
 # =====================================================
 # BUILDOZER
