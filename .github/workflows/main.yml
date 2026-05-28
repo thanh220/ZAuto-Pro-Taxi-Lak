@@ -42,31 +42,42 @@ jobs:
           cd nodejs_backend
           npm install
 
+      # 5. Cài đặt các gói hệ thống cần thiết
       - name: Install System Dependencies
         run: |
           sudo apt update
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev build-essential patch libjpeg-dev libpng-dev ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
 
-      # 5. Cấu hình môi trường build thông minh
+      # 6. Cấu hình môi trường build thông minh & CHỐNG XUNG ĐỘT PIP
       - name: Setup Build Environment with Auto-Optimization
         run: |
+          echo "Đang quét môi trường..."
           PYTHON_VER=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-          if [ "$PYTHON_VER" == "3.11" ]; then
-            TARGET_PIP="23.1.2"
-          else
-            TARGET_PIP="latest"
-          fi
+          echo "Phiên bản Python: $PYTHON_VER"
+          
+          # LUÔN KHÓA PIP Ở BẢN NÀY ĐỂ TRÁNH LỖI XUNG ĐỘT
+          TARGET_PIP="23.1.2"
+          echo "Phiên bản Pip bắt buộc: $TARGET_PIP"
+          
           python -m pip install --upgrade pip==$TARGET_PIP
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
+          
+          # Ép Buildozer không được dùng pip mới
           echo "VIRTUALENV_PIP=$TARGET_PIP" >> $GITHUB_ENV
           echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> $GITHUB_ENV
           echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
+          
+          # Dọn dẹp cache môi trường cũ
+          find . -name "venv" -type d -exec rm -rf {} +
+          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
 
+      # 7. Build APK
       - name: Build APK
         run: |
           buildozer android debug
 
+      # 8. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
