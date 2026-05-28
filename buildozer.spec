@@ -1,88 +1,183 @@
 [app]
 
-# (str) Title of your application
-title = ZAuto VIP
+# =====================================================
 
-# (str) Package name
+# APP INFO
+
+# =====================================================
+
+title = ZAuto VIP
 package.name = zauto
 package.domain = org.zauto
 
-# (str) Source code where the main.py live
 source.dir = .
 
-# (list) Source files to include
 source.include_exts = py,png,jpg,jpeg,kv,json,xml,java,db,ttf,otf,txt,html,css,js
-source.include_dirs = nodejs_backend
-source.include_patterns = nodejs_backend/bin/*, nodejs_backend/node_modules/**
 
-# (str) Application versioning
+source.include_dirs = nodejs_backend
+
+source.include_patterns = nodejs_backend/bin/*,nodejs_backend/node_modules/**
+
 version = 7.0
 
+# =====================================================
 
-# (list) Application requirements
-requirements = python3,kivy==2.2.1,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
-# (str) Presplash of the application
+# REQUIREMENTS
+
+# =====================================================
+
+requirements = python3==3.11.9,kivy==2.2.1,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
+
+# =====================================================
+
+# SPLASH & ICON
+
+# =====================================================
+
 presplash.filename = profile.jpg
 presplash.color = #FFFFFF
 
-# (str) Icon of the application
 icon.filename = profile.jpg
 
-# (list) Supported orientations
-orientation = portrait
+# =====================================================
 
-# (bool) Indicate if the application should be fullscreen
+# DISPLAY
+
+# =====================================================
+
+orientation = portrait
 fullscreen = 0
 
-# (str) Android Keystore configuration (THÊM ĐOẠN NÀY)
+# =====================================================
+
+# ANDROID PACKAGE
+
+# =====================================================
+
 android.release_artifact = apk
 android.package_format = apk
+
+# =====================================================
+
+# SIGN APK
+
+# =====================================================
+
 android.keystore = zauto.keystore
 android.keystore_password = zauto123
+
 android.keyalias = zauto
 android.keyalias_password = zauto123
 
 # =====================================================
-# ANDROID CONFIGURATION
+
+# ANDROID SDK
+
 # =====================================================
+
 android.api = 34
 android.minapi = 24
+
 android.ndk = 25b
+
 android.accept_sdk_license = True
+
 android.archs = arm64-v8a, armeabi-v7a
+
 android.enable_androidx = True
 
+android.allow_backup = False
+
 # =====================================================
-# PERMISSIONS & SERVICES
+
+# PERMISSIONS
+
 # =====================================================
+
 android.permissions = INTERNET,WAKE_LOCK,FOREGROUND_SERVICE,FOREGROUND_SERVICE_DATA_SYNC,POST_NOTIFICATIONS,ACCESS_NETWORK_STATE,ACCESS_WIFI_STATE,RECEIVE_BOOT_COMPLETED,SYSTEM_ALERT_WINDOW,REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,REQUEST_INSTALL_PACKAGES
 
+# =====================================================
+
+# FOREGROUND SERVICE
+
+# =====================================================
+
 android.foreground_service = True
+
 android.manifest_queries = com.zing.zalo
 
 # =====================================================
-# EXTRA CONFIG
+
+# EXTRA JAVA / RESOURCES
+
 # =====================================================
+
 android.add_src = java
-android.add_res = ./res
+
+android.add_res = res
+
+# =====================================================
+
+# GRADLE
+
+# =====================================================
+
 android.gradle_dependencies = androidx.core:core:1.12.0,androidx.webkit:webkit:1.7.0
-android.gradle_args = -Xmx4096m
+
+android.gradle_args = -Dorg.gradle.jvmargs=-Xmx4096m
+
+# =====================================================
+
+# EXTRA MANIFEST
+
+# =====================================================
 
 android.extra_manifest_application = %(source.dir)s/manifest_services.xml
+
 android.extra_manifest_application_arguments = <provider android:name="androidx.core.content.FileProvider" android:authorities="org.zauto.zauto.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths"/></provider>
 
 # =====================================================
-# PERFORMANCE & BUILD
+
+# PERFORMANCE
+
 # =====================================================
+
 android.copy_libs = 1
+
 android.skip_update = False
+
 android.logcat_filters = python:D *:S
 
-source.exclude_dirs = venv,.venv,env,.git,.github,**pycache**,.buildozer
+# =====================================================
+
+# SOURCE EXCLUDE
+
+# =====================================================
+
+source.exclude_dirs = venv,.venv,env,.git,.github,**pycache**,.buildozer,bin
+
 source.exclude_patterns = *.pyc,*.pyo,*.log,*.tmp
 
+# =====================================================
+
+# PYTHON FOR ANDROID
+
+# =====================================================
+
+p4a.branch = master
+
+# =====================================================
+
+# BUILDOZER
+
+# =====================================================
+
 [buildozer]
+
 log_level = 2
+
 warn_on_root = 0
-build_dir = ./.buildozer
-bin_dir = ./bin
+
+build_dir = .buildozer
+
+bin_dir = bin
