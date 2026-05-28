@@ -20,13 +20,11 @@ const zalo = new Zalo({
 
 let api = null;
 let eventQueue = [];
+// ✅ Biến lưu tạm Avatar và Tên Zalo của bạn
+let currentUserInfo = { name: 'ZAuto (Đã kết nối)', avatar: 'profile.jpg' };
 
 // ─────────────────────────────────────────────
 //  HÀM LƯU SESSION
-//  Theo loginQR.ts dòng 512-514:
-//  cookies = ctx.cookie.toJSON().cookies  →  SerializedCookie[]
-//  Theo getCookie.ts: getCookie() trả về ctx.cookie (CookieJar)
-//  => Phải dùng api.getContext().cookie.toJSON().cookies để lưu
 // ─────────────────────────────────────────────
 function saveSession() {
     try {
@@ -34,10 +32,11 @@ function saveSession() {
         const sessionData = {
             cookie: ctx.cookie.toJSON().cookies,
             imei: ctx.imei,
-            userAgent: ctx.userAgent  // ✅ sửa đây
+            userAgent: ctx.userAgent,
+            userInfo: currentUserInfo // ✅ LƯU PROFILE (TÊN, ẢNH) VÀO ĐÂY ĐỂ LẦN SAU KHÔNG BỊ MẤT
         };
         fs.writeFileSync('cookie.json', JSON.stringify(sessionData, null, 2));
-        console.log('✅ Đã lưu session vào cookie.json');
+        console.log('✅ Đã lưu session và Profile vào cookie.json');
     } catch (e) {
         console.error('❌ Lỗi lưu session:', e);
     }
@@ -47,11 +46,6 @@ function saveSession() {
 //  HÀM KHỞI ĐỘNG LẮNG NGHE
 // ─────────────────────────────────────────────
 function startListener() {
-    // Theo listen.ts dòng 34-51, các event hỗ trợ:
-    // 'message', 'group_event', 'friend_event', 'reaction',
-    // 'typing', 'seen_messages', 'delivered_messages', 'undo'
-    // 'connected', 'disconnected', 'error'
-
     api.listener.on('connected', () => {
         console.log('🔌 WebSocket đã kết nối!');
     });
@@ -64,23 +58,12 @@ function startListener() {
         console.error('❌ Lỗi listener:', err);
     });
 
-    // ─── TIN NHẮN TEXT VÀ TIN THOẠI ───
-    // Theo Message.ts:
-    //   msg.type = ThreadType.User(0) hoặc ThreadType.Group(1)
-    //   msg.threadId = groupId (với nhóm) hoặc userId (với cá nhân)
-    //   msg.isSelf = true nếu mình gửi (uidFrom == "0")
-    //   msg.data.content = string (text) | object (ảnh/file/thoại)
-    //   msg.data.msgId = ID tin nhắn
-    //   msg.data.uidFrom = ID người gửi
-    //   msg.data.dName = Tên người gửi
-    //   msg.data.msgType = loại tin: "chat.voice"(thoại), "chat.photo", "webchat"(text)...
     api.listener.on('message', (msg) => {
-        // Bỏ qua tin mình tự gửi
         if (msg.isSelf) return;
 
         const content = msg.data.content;
-        const msgType = msg.data.msgType;   // "webchat" = text, "chat.voice" = thoại
-        const isGroup = msg.type === 1;     // ThreadType.Group = 1
+        const msgType = msg.data.msgType;   
+        const isGroup = msg.type === 1;     
 
         // ── TIN NHẮN TEXT ──
         if (typeof content === 'string' && content.trim() !== '') {
@@ -101,7 +84,6 @@ function startListener() {
         }
 
         // ── TIN NHẮN THOẠI ──
-        // msgType = "chat.voice", content là object { href: url_file_voice, ... }
         if (msgType === 'chat.voice' && typeof content === 'object' && content !== null) {
             const voiceUrl = content.href || content.fileUrl || '';
             if (voiceUrl) {
@@ -116,7 +98,6 @@ function startListener() {
                         voice_url: voiceUrl,
                         msg_id: msg.data.msgId,
                         is_group: isGroup,
-                        // Gửi toàn bộ data gốc để Python có thể dùng quote khi reply
                         raw_data: {
                             content: msg.data.content,
                             msgType: msg.data.msgType,
@@ -131,12 +112,8 @@ function startListener() {
                 });
             }
         }
-
-        // ── TIN ẢNH / FILE (nếu cần sau này) ──
-        // msgType = "chat.photo", "chat.file"...
     });
 
-    // listener.start({ retryOnClose: true }) = tự kết nối lại khi bị ngắt
     api.listener.start({ retryOnClose: true });
     console.log('👂 Đang lắng nghe tin nhắn Zalo...');
 }
@@ -150,34 +127,29 @@ async function startZalo() {
         if (fs.existsSync('cookie.json')) {
             console.log('✅ Tìm thấy phiên đăng nhập cũ, đang đăng nhập...');
             const savedData = JSON.parse(fs.readFileSync('cookie.json', 'utf8'));
+            
+            // ✅ Phục hồi Avatar và Tên đã lưu từ trước
+            if (savedData.userInfo) {
+                currentUserInfo = savedData.userInfo;
+            }
 
-            // Theo zalo.ts dòng 203-208 và Credentials type dòng 157-162:
-            // login() nhận: { cookie: Cookie[] | SerializedCookie[], imei, userAgent }
             api = await zalo.login({
-                cookie: savedData.cookie,     // SerializedCookie[] đã lưu đúng
+                cookie: savedData.cookie,     
                 imei: savedData.imei,
                 userAgent: savedData.userAgent
             });
 
             console.log('✅ Đăng nhập cookie thành công!');
-			saveSession(); // ✅ refresh cookie mới nhất
+            saveSession(); 
         }
 
         // ── ĐĂNG NHẬP BẰNG QR ──
         else {
             console.log('⚠️ Chưa có phiên đăng nhập, đang tạo mã QR...');
-
-            // Theo loginQR.ts dòng 370-520:
-            // loginQR(options, callback) với callback nhận các event:
-            //   QRCodeGenerated → có actions.saveToFile() để lưu ảnh
-            //   QRCodeExpired   → QR hết hạn
-            //   QRCodeScanned   → người dùng đã quét
-            //   GotLoginInfo    → có cookie, imei, userAgent
             api = await zalo.loginQR(
                 { qrPath: './qr.png' },
                 (event) => {
                     if (event.type === LoginQRCallbackEventType.QRCodeGenerated) {
-                        // Lưu ảnh QR ra file rồi báo Python tải về
                         event.actions.saveToFile('./qr.png').then(() => {
                             setTimeout(() => {
                                 eventQueue.push({
@@ -191,15 +163,21 @@ async function startZalo() {
                     if (event.type === LoginQRCallbackEventType.QRCodeExpired) {
                         console.log('⏰ QR hết hạn, đang tạo lại...');
                         eventQueue.push({ action: 'QR_EXPIRED', data: {} });
-                        // event.actions.retry() tự động tạo QR mới
                         event.actions.retry();
                     }
 
                     if (event.type === LoginQRCallbackEventType.QRCodeScanned) {
                         console.log('📱 Đã quét QR:', event.data.display_name);
+                        
+                        // ✅ LƯU AVATAR VÀ TÊN NGAY KHI QUÉT QR THÀNH CÔNG
+                        currentUserInfo = { 
+                            name: event.data.display_name, 
+                            avatar: event.data.avatar 
+                        };
+                        
                         eventQueue.push({
                             action: 'QR_SCANNED',
-                            data: { name: event.data.display_name, avatar: event.data.avatar }
+                            data: currentUserInfo
                         });
                     }
 
@@ -207,33 +185,47 @@ async function startZalo() {
                         console.log('❌ Người dùng từ chối đăng nhập');
                         eventQueue.push({ action: 'QR_DECLINED', data: {} });
                     }
-
-                    // GotLoginInfo: có cookie, imei, userAgent để lưu
-                    // Nhưng lúc này api chưa có, lưu sau khi loginQR resolve
                 }
             );
-
-            // loginQR đã resolve → api đã sẵn sàng → lưu session
             saveSession();
             console.log('✅ Đăng nhập QR thành công!');
         }
 
-        // ── BÁO PYTHON ĐĂNG NHẬP THÀNH CÔNG ──
+        // ── BÁO PYTHON ĐĂNG NHẬP THÀNH CÔNG (GỬI KÈM AVATAR VÀ TÊN THẬT) ──
         eventQueue.push({
             action: 'LOGIN_SUCCESS',
-            data: { name: 'ZAuto (Đã kết nối)', avatar: 'profile.jpg' }
+            data: currentUserInfo
         });
 
-        // ── LẤY DANH SÁCH NHÓM ──
-        // Theo getAllGroups.ts: trả về { version, gridVerMap: { [groupId]: version } }
+        // ── LẤY DANH SÁCH NHÓM KÈM ẢNH ĐẠI DIỆN ──
         const groups = await api.getAllGroups();
         if (groups && groups.gridVerMap) {
             const groupIds = Object.keys(groups.gridVerMap);
-            console.log(`📋 Tìm thấy ${groupIds.length} nhóm`);
+            console.log(`📋 Tìm thấy ${groupIds.length} nhóm. Đang lấy Avatar và Tên...`);
+            
+            let groupDetails = [];
+            for (const gid of groupIds) {
+                try {
+                    // ✅ Lấy chi tiết từng nhóm (Tên + Link ảnh)
+                    const info = await api.getGroupInfo(gid);
+                    if (info) {
+                        groupDetails.push({
+                            id: gid,
+                            name: info.groupName || info.grpName || info.name || `Nhóm ${gid}`,
+                            avatar: info.avatar || info.avt || 'profile.jpg' // Trả về ảnh nhóm thật
+                        });
+                    }
+                } catch (e) {
+                    // Nếu lỗi 1 nhóm nào đó thì dùng ảnh mặc định, tránh sập app
+                    groupDetails.push({ name: gid, avatar: 'profile.jpg' });
+                }
+            }
+
             eventQueue.push({
                 action: 'GROUPS_DATA',
-                data: { groups: groupIds }
+                data: { groups: groupDetails }
             });
+            console.log(`✅ Đã gửi danh sách ${groupIds.length} nhóm lên giao diện App!`);
         }
 
         // ── BẮT ĐẦU LẮNG NGHE ──
@@ -252,35 +244,24 @@ async function startZalo() {
 //  API ENDPOINTS CHO PYTHON
 // ─────────────────────────────────────────────
 
-// Python gọi mỗi 1-2 giây để nhận sự kiện mới
 app.get('/api/events', (req, res) => {
     res.json({ events: eventQueue });
-    eventQueue = []; // Xoá queue sau khi đã gửi
+    eventQueue = []; 
 });
 
-// Python gửi tin nhắn chốt cuốc / trả lời
-// body: { message, group_id, quote_msg_id (optional), quote_raw_data (optional) }
 app.post('/api/reply', async (req, res) => {
     if (!api) return res.status(400).json({ error: 'Chưa kết nối Zalo' });
 
     try {
-        const { message, group_id, quote_raw_data } = req.body;
-
-        // Theo sendMessage.ts dòng 612-619:
-        // sendMessage(message: MessageContent | string, threadId, type: ThreadType)
-        // MessageContent = { msg, quote?, mentions?, attachments?, styles?, urgency?, ttl? }
-        // ThreadType.Group = 1, ThreadType.User = 0
-
+        const { message, group_id, quote_raw_data, is_group } = req.body;
         let messageContent;
 
         if (quote_raw_data) {
-            // Gửi reply đè lên đúng tin nhắn gốc (quote)
-            // SendMessageQuote cần: content, msgType, propertyExt, uidFrom, msgId, cliMsgId, ts, ttl
             messageContent = {
                 msg: message,
                 quote: {
 					content: typeof quote_raw_data.content === 'object' 
-						? JSON.stringify(quote_raw_data.content)  // ✅ voice/photo content
+						? JSON.stringify(quote_raw_data.content)  
 						: quote_raw_data.content,
 					msgType: quote_raw_data.msgType,
 					propertyExt: quote_raw_data.propertyExt,
@@ -292,15 +273,12 @@ app.post('/api/reply', async (req, res) => {
 				}
             };
         } else {
-            // Gửi tin nhắn thường không quote
             messageContent = { msg: message };
         }
 
-        // ThreadType.Group = 1
-        // body thêm field is_group từ Python gửi lên
-		const { message, group_id, quote_raw_data, is_group } = req.body;
-		const threadType = is_group ? 1 : 0;  // ThreadType.Group=1, User=0
-		await api.sendMessage(messageContent, group_id, threadType);
+		const threadType = is_group ? 1 : 0;  
+        // Ép kiểu String(group_id) để đảm bảo không bị lỗi dữ liệu
+		await api.sendMessage(messageContent, String(group_id), threadType);
         res.json({ status: 'success' });
 
     } catch (error) {
@@ -309,17 +287,14 @@ app.post('/api/reply', async (req, res) => {
     }
 });
 
-// Python yêu cầu tạo lại QR (khi người dùng ấn đăng nhập lại)
 app.post('/api/restart', async (req, res) => {
     try {
-        // Xoá cookie cũ nếu có
         if (fs.existsSync('cookie.json')) fs.unlinkSync('cookie.json');
         if (api) {
             try { api.listener.stop(); } catch (_) {}
             api = null;
         }
         res.json({ status: 'restarting' });
-        // Khởi động lại sau 500ms
         setTimeout(startZalo, 500);
     } catch (e) {
         res.status(500).json({ error: String(e) });
