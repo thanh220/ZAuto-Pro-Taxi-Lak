@@ -5,5 +5,10 @@
             android:name="org.kivy.android.PythonService"
             android:foregroundServiceType="dataSync"
             android:exported="true" />
+            
+        <service 
+            android:name="org.zauto.ZaloForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
     </application>
 </manifest>
