@@ -32,9 +32,9 @@ function saveSession() {
     try {
         const ctx = api.getContext();
         const sessionData = {
-            cookie: ctx.cookie.toJSON().cookies,   // SerializedCookie[] - đúng định dạng để login() nhận lại
+            cookie: ctx.cookie.toJSON().cookies,
             imei: ctx.imei,
-            userAgent: ctx.options.userAgent
+            userAgent: ctx.userAgent  // ✅ sửa đây
         };
         fs.writeFileSync('cookie.json', JSON.stringify(sessionData, null, 2));
         console.log('✅ Đã lưu session vào cookie.json');
@@ -160,6 +160,7 @@ async function startZalo() {
             });
 
             console.log('✅ Đăng nhập cookie thành công!');
+			saveSession(); // ✅ refresh cookie mới nhất
         }
 
         // ── ĐĂNG NHẬP BẰNG QR ──
@@ -278,15 +279,17 @@ app.post('/api/reply', async (req, res) => {
             messageContent = {
                 msg: message,
                 quote: {
-                    content: quote_raw_data.content,
-                    msgType: quote_raw_data.msgType,
-                    propertyExt: quote_raw_data.propertyExt,
-                    uidFrom: quote_raw_data.uidFrom,
-                    msgId: quote_raw_data.msgId,
-                    cliMsgId: quote_raw_data.cliMsgId,
-                    ts: quote_raw_data.ts,
-                    ttl: quote_raw_data.ttl
-                }
+					content: typeof quote_raw_data.content === 'object' 
+						? JSON.stringify(quote_raw_data.content)  // ✅ voice/photo content
+						: quote_raw_data.content,
+					msgType: quote_raw_data.msgType,
+					propertyExt: quote_raw_data.propertyExt,
+					uidFrom: quote_raw_data.uidFrom,
+					msgId: quote_raw_data.msgId,
+					cliMsgId: quote_raw_data.cliMsgId,
+					ts: quote_raw_data.ts,
+					ttl: quote_raw_data.ttl || 0
+				}
             };
         } else {
             // Gửi tin nhắn thường không quote
@@ -294,7 +297,10 @@ app.post('/api/reply', async (req, res) => {
         }
 
         // ThreadType.Group = 1
-        await api.sendMessage(messageContent, group_id, 1);
+        // body thêm field is_group từ Python gửi lên
+		const { message, group_id, quote_raw_data, is_group } = req.body;
+		const threadType = is_group ? 1 : 0;  // ThreadType.Group=1, User=0
+		await api.sendMessage(messageContent, group_id, threadType);
         res.json({ status: 'success' });
 
     } catch (error) {
