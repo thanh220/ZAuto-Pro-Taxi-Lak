@@ -20,8 +20,8 @@ version = 7.0
 # REQUIREMENTS
 # =====================================================
 
-# FIX: Kivy updated to 2.3.0 for better Python 3.11.4 & NDK 25b compatibility
-requirements = python3,kivy==2.3.0,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
+# Thêm hostpython3==3.11.9 để ép trình biên dịch dùng bản cũ tương thích với Kivy 2.3.0
+requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
 
 # =====================================================
 # SPLASH & ICON
