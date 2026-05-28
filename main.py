@@ -964,38 +964,44 @@ class ZAutoProApp(MDApp):
             except Exception as e:
                 logger.error(f"Lỗi on_start cấu hình Android: {traceback.format_exc()}")
     def update_group_list_ui(self, groups):
-        """Cập nhật danh sách nhóm từ Zalo Web lên giao diện Tab Nhóm"""
+        """Cập nhật danh sách nhóm kèm Avatar từ Zalo Web"""
         try:
             group_list_widget = self.root.ids.group_filter_list
-            # Lấy danh sách các nhóm hiện đang hiển thị trên màn hình
             current_ui_groups = [item.text for item in group_list_widget.children if hasattr(item, 'text')]
             
-            from kivymd.uix.list import OneLineIconListItem, IconLeftWidget
+            # Đổi từ IconLeftWidget sang ImageLeftWidget để hiện ảnh
+            from kivymd.uix.list import OneLineAvatarIconListItem, ImageLeftWidget
             from kivymd.uix.selectioncontrol import MDSwitch
-            from kivy.uix.boxlayout import BoxLayout
 
-            for g_name in groups:
-                # Nếu nhóm này chưa có trong giao diện thì mới thêm vào
+            for g in groups:
+                # Code này hỗ trợ đọc cả chuỗi (bản cũ) và Dictionary (bản mới có link avatar)
+                if isinstance(g, dict):
+                    g_name = g.get('name', 'Nhóm không tên')
+                    g_avatar = g.get('avatar', 'profile.jpg')
+                else:
+                    g_name = str(g)
+                    g_avatar = 'profile.jpg' # Ảnh mặc định nếu Node.js chưa kịp gửi link
+                
+                # Nếu nhóm chưa có trong UI thì thêm vào
                 if g_name not in current_ui_groups:
-                    # Mặc định nhóm mới là BẬT nếu chưa từng lưu trạng thái
                     if g_name not in self.enabled_groups:
                         self.enabled_groups[g_name] = False
                     
-                    # Tạo item danh sách
-                    item = OneLineIconListItem(text=g_name)
+                    # Dùng OneLineAvatarIconListItem thay vì OneLineIconListItem
+                    item = OneLineAvatarIconListItem(text=g_name)
                     
-                    # Thêm icon đại diện bên trái cho chuyên nghiệp
-                    icon = IconLeftWidget(icon="account-group")
-                    item.add_widget(icon)
+                    # ✅ NHÉT AVATAR TỪ LINK VÀO BÊN TRÁI 
+                    avatar_widget = ImageLeftWidget(
+                        source=g_avatar, 
+                        radius=[20, ]
+                    )
+                    item.add_widget(avatar_widget)
                     
-                    # Tạo công tắc gạt bên phải
+                    # Công tắc bên phải
                     switcher = MDSwitch(
                         active=self.enabled_groups[g_name],
                         pos_hint={'center_x': .9, 'center_y': .5}
                     )
-                    
-                    # Gán sự kiện khi tài xế gạt nút
-                    # Dùng partial hoặc lambda có gán mặc định để tránh lỗi ghi đè biến name
                     switcher.bind(active=lambda sw, val, name=g_name: self.toggle_group(name, val))
                     
                     item.add_widget(switcher)
@@ -1453,10 +1459,76 @@ class ZAutoProApp(MDApp):
 
                     if action == 'LOGIN_SUCCESS':
                         self.is_linked = True
+                        
+                        # 1. Lấy thông tin Tên và Avatar do Node.js gửi sang
+                        zalo_name = data.get('name', 'Tài khoản Zalo')
+                        zalo_avatar = data.get('avatar', 'profile.jpg')
+                        
+                        # 2. Cập nhật thanh trạng thái phía trên
                         self.config_data['is_linked'] = True
+                        self.config_data['zalo_name'] = zalo_name
+                        self.config_data['zalo_avatar'] = zalo_avatar
                         self.save_config_silent()
                         Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
-                        Clock.schedule_once(lambda dt: self.root.ids.webview_container.clear_widgets(), 0)
+                        
+                        # 3. VẼ GIAO DIỆN AVATAR VÀO KHOẢNG TRỐNG BÊN DƯỚI
+                        def _show_profile_center(dt):
+                            try:
+                                from kivy.uix.boxlayout import BoxLayout
+                                from kivy.uix.label import Label
+                                from kivymd.uix.fitimage import FitImage
+                                from kivy.metrics import dp
+                                
+                                container = self.root.ids.webview_container
+                                container.clear_widgets()
+                                
+                                # Tạo một khối Box nằm giữa màn hình
+                                box = BoxLayout(
+                                    orientation='vertical', 
+                                    spacing=dp(10),
+                                    size_hint=(1, None), 
+                                    height=dp(250),
+                                    pos_hint={'center_x': 0.5, 'center_y': 0.5}
+                                )
+                                
+                                # Tranh thủ tải Avatar hình tròn
+                                avatar_img = FitImage(
+                                    source=zalo_avatar, 
+                                    size_hint=(None, None), 
+                                    size=(dp(120), dp(120)), 
+                                    radius=[dp(60)], # Bo tròn 50%
+                                    pos_hint={'center_x': 0.5}
+                                )
+                                
+                                # Tên Zalo
+                                name_lbl = Label(
+                                    text=zalo_name, 
+                                    color=(0.1, 0.1, 0.1, 1), 
+                                    bold=True, 
+                                    font_size='22sp', 
+                                    size_hint_y=None, height=dp(40)
+                                )
+                                
+                                # Trạng thái
+                                status_lbl = Label(
+                                    text="✅ Đã kết nối API Zalo ngầm\nSẵn sàng nhận cuốc tự động!", 
+                                    color=(0.1, 0.6, 0.2, 1), 
+                                    font_size='15sp', 
+                                    halign="center",
+                                    size_hint_y=None, height=dp(50)
+                                )
+                                
+                                box.add_widget(Label(size_hint_y=1)) # Lót trên
+                                box.add_widget(avatar_img)
+                                box.add_widget(name_lbl)
+                                box.add_widget(status_lbl)
+                                box.add_widget(Label(size_hint_y=1)) # Lót dưới
+                                
+                                container.add_widget(box)
+                            except Exception as e:
+                                logger.error(f"Lỗi vẽ Profile Center: {e}")
+                                
+                        Clock.schedule_once(_show_profile_center, 0)
                         self.safe_toast("Đã liên kết API Zalo thành công!")
 
                     elif action == 'GROUPS_DATA':
