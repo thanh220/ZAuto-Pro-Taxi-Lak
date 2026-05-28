@@ -118,7 +118,7 @@ android.skip_update = False
 # =====================================================
 # EXCLUDE
 # =====================================================
-source.exclude_dirs = venv,.venv,env,.git,.github,**pycache**,bin,.buildozer
+source.exclude_dirs = venv,.venv,env,.git,.github,**pycache**,.buildozer
 source.exclude_patterns = *.pyc,*.pyo,*.log,*.tmp
 
 # =====================================================
