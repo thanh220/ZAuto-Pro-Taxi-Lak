@@ -54,18 +54,20 @@ jobs:
 
       - name: Setup Build Environment
         run: |
-          # 1. Cài đặt các công cụ cần thiết
+          # 1. Cài đặt các công cụ cơ bản
           python -m pip install --upgrade pip==23.1.2
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
           
-          # 2. Quan trọng: Ép buildozer và python-for-android sử dụng đúng phiên bản pip cũ
-          # Điều này ngăn việc nó tự nâng cấp pip lên 26.x gây lỗi
+          # 2. NGĂN CHẶN XUNG ĐỘT PIP (Cải tiến quan trọng)
+          echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> $GITHUB_ENV
+          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
           echo "VIRTUALENV_PIP=23.1.2" >> $GITHUB_ENV
           
-          # 3. Xóa cache của buildozer nếu có để đảm bảo không dùng lại môi trường lỗi
+          # 3. Xóa sạch venv cũ để Buildozer tạo mới hoàn toàn
+          # Dùng lệnh find để xóa cho chắc chắn
+          find . -name "venv" -type d -exec rm -rf {} +
           rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
-
       - name: Build APK
         run: |
           # Dùng debug hoặc release tùy bạn
