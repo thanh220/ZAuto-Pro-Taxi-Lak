@@ -26,7 +26,7 @@ version = 7.0
 
 # =====================================================
 
-requirements = python3==3.11.9,kivy==2.2.1,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
+requirements = python3==3.11.9,kivy==2.3.0,kivymd==1.1.1,pillow==9.5.0,pyjnius,requests,plyer
 
 # =====================================================
 
@@ -154,10 +154,8 @@ android.logcat_filters = python:D *:S
 
 # =====================================================
 
-source.exclude_dirs = venv,.venv,env,.git,.github,**pycache**,.buildozer,bin
-
+source.exclude_dirs = venv,.venv,env,.git,.github,__pycache__,.buildozer,bin
 source.exclude_patterns = *.pyc,*.pyo,*.log,*.tmp
-
 # =====================================================
 
 # PYTHON FOR ANDROID
