@@ -32,7 +32,7 @@ jobs:
           tar -xf node-v20.11.1-linux-arm64.tar.xz
           cp node-v20.11.1-linux-arm64/bin/node nodejs_backend/bin/node_arm64
           echo "Downloading ARMv7 NodeJS..."
-          curl -LO https://unofficial-builds.nodejs.org/download/release/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
+          curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
           tar -xf node-v20.11.1-linux-armv7l.tar.xz
           cp node-v20.11.1-linux-armv7l/bin/node nodejs_backend/bin/node_armv7
           chmod +x nodejs_backend/bin/node_arm64
