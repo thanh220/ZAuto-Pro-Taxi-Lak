@@ -42,42 +42,40 @@ jobs:
           cd nodejs_backend
           npm install
 
-      # 5. Cài đặt các gói hệ thống cần thiết
+      # 5. Cài đặt thư viện hệ thống Ubuntu
       - name: Install System Dependencies
         run: |
           sudo apt update
           sudo apt install -y git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev build-essential patch libjpeg-dev libpng-dev ffmpeg libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
 
-      # 6. Cấu hình môi trường build thông minh & CHỐNG XUNG ĐỘT PIP
-      - name: Setup Build Environment with Auto-Optimization
+      # 6. Cài đặt các công cụ Python cơ bản
+      - name: Setup Build Tools
         run: |
-          echo "Đang quét môi trường..."
-          PYTHON_VER=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-          echo "Phiên bản Python: $PYTHON_VER"
-          
-          # LUÔN KHÓA PIP Ở BẢN NÀY ĐỂ TRÁNH LỖI XUNG ĐỘT
-          TARGET_PIP="23.1.2"
-          echo "Phiên bản Pip bắt buộc: $TARGET_PIP"
-          
-          python -m pip install --upgrade pip==$TARGET_PIP
+          python -m pip install --upgrade pip==23.1.2
           pip install --upgrade setuptools==68.2.2 wheel==0.41.2 Cython==0.29.36
           pip install buildozer
-          
-          # Ép Buildozer không được dùng pip mới
-          echo "VIRTUALENV_PIP=$TARGET_PIP" >> $GITHUB_ENV
-          echo "PIP_DISABLE_PIP_VERSION_CHECK=1" >> $GITHUB_ENV
-          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
-          
-          # Dọn dẹp cache môi trường cũ
-          find . -name "venv" -type d -exec rm -rf {} +
-          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv
 
-      # 7. Build APK
+      # 7. VÁ LỖI MÃ NGUỒN BUILDOZER (TUYỆT CHIÊU CUỐI)
+      - name: Patch python-for-android source code
+        run: |
+          echo "Đang tải lõi Android về để chuẩn bị vá lỗi..."
+          yes | buildozer android update || true
+          
+          echo "Đang tìm và xóa bỏ lệnh tự cập nhật Pip gây lỗi..."
+          find .buildozer -type f -name "build.py" -exec sed -i 's/pip install -U pip/pip install pip==23.1.2/g' {} +
+          
+          echo "Đã vá lỗi thành công! Môi trường ảo (venv) sẽ bị khóa vĩnh viễn ở Pip 23.1.2"
+          
+          # Dọn rác venv cũ do các lần build hỏng trước để lại
+          find . -name "venv" -type d -exec rm -rf {} +
+          rm -rf .buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/venv || true
+
+      # 8. Build APK
       - name: Build APK
         run: |
           buildozer android debug
 
-      # 8. Upload APK
+      # 9. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
