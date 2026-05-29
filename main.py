@@ -1460,11 +1460,13 @@ class ZAutoProApp(MDApp):
                     self.ui_queue.put_nowait(('remove_by_key', cache_key))
                 except queue.Full: pass
     def sync_cookie_from_webview(self):
-        """Hút cookie từ Java WebView và gửi cho Node.js"""
+        """Hút cookie từ Java WebView và gửi cho Node.js (Bản Đa Luồng chống đơ App)"""
         if platform == 'android':
             try:
                 from jnius import autoclass
                 import requests
+                import threading  # <--- Bắt buộc phải có để tạo luồng ngầm
+                from kivy.clock import Clock
                 
                 self.safe_toast("Đang đồng bộ dữ liệu Zalo...")
                 ZWebManager = autoclass('org.zauto.ZaloWebManager')
@@ -1484,18 +1486,30 @@ class ZAutoProApp(MDApp):
                     "imei": imei,
                     "user_agent": user_agent
                 }
-                res = requests.post("http://127.0.0.1:5000/api/cookie_login", json=payload, timeout=15)
+
+                # TẠO LUỒNG RIÊNG ĐỂ GỬI API - KHÔNG LÀM ĐƠ GIAO DIỆN
+                def _send_api_thread():
+                    try:
+                        res = requests.post("http://127.0.0.1:5000/api/cookie_login", json=payload, timeout=15)
+                        
+                        if res.status_code == 200:
+                            self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
+                            self.config_data['is_linked'] = True
+                            self.is_linked = True
+                            self.save_config_silent()
+                            
+                            # Kivy bắt buộc phải update UI trên luồng chính thông qua Clock
+                            Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
+                            Clock.schedule_once(lambda dt: self.set_webview_visible(False), 0)
+                        else:
+                            self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
+                    except Exception as e:
+                        logger.error(f"Lỗi sync cookie ngầm: {e}")
+                        self.safe_toast("❌ Node.js chưa chạy xong, vui lòng đợi 5s và bấm lại.")
+                        
+                # Kích hoạt luồng chạy ngầm
+                threading.Thread(target=_send_api_thread, daemon=True).start()
                 
-                if res.status_code == 200:
-                    self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
-                    self.config_data['is_linked'] = True
-                    self.is_linked = True
-                    self.save_config_silent()
-                    self.update_profile_ui()
-                    
-                    self.set_webview_visible(False)
-                else:
-                    self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
             except Exception as e:
                 logger.error(f"Lỗi sync cookie: {e}")
                 self.safe_toast("❌ Lỗi kết nối đến Server ngầm.")
