@@ -13,7 +13,6 @@ const require = createRequire(import.meta.url);
 function applyCookiePatch(CookieJarClass) {
     if (!CookieJarClass || CookieJarClass.__patched) return;
 
-    // Chuẩn hóa mọi subdomain Zalo về chat.zalo.me để đọc cookie
     function normalizeZaloUrl(urlStr) {
         if (urlStr.includes('id.zalo.me')) return urlStr.replace('id.zalo.me', 'chat.zalo.me');
         if (urlStr.includes('jr.chat.zalo.me')) return urlStr.replace('jr.chat.zalo.me', 'chat.zalo.me');
@@ -21,7 +20,6 @@ function applyCookiePatch(CookieJarClass) {
         return urlStr;
     }
 
-    // ── PATCH setCookie ──────────────────────────────────────
     const _origSetCookie = CookieJarClass.prototype.setCookie;
     CookieJarClass.prototype.setCookie = function(cookie, url, options, cb) {
         if (typeof options === 'function') { cb = options; options = {}; }
@@ -49,7 +47,6 @@ function applyCookiePatch(CookieJarClass) {
         return _origSetCookieSync.call(this, cookie, url, options);
     };
 
-    // ── PATCH getCookies ─────────────────────────────────────
     const _origGetCookies = CookieJarClass.prototype.getCookies;
     CookieJarClass.prototype.getCookies = function(url, options, cb) {
         if (typeof options === 'function') { cb = options; options = {}; }
@@ -65,7 +62,6 @@ function applyCookiePatch(CookieJarClass) {
         return _origGetCookiesSync.call(this, normalizeZaloUrl(urlStr), options);
     };
 
-    // ── PATCH getCookieString ────────────────────────────────
     const _origGetCookieString = CookieJarClass.prototype.getCookieString;
     CookieJarClass.prototype.getCookieString = function(url, options, cb) {
         if (typeof options === 'function') { cb = options; options = {}; }
@@ -85,11 +81,9 @@ function applyCookiePatch(CookieJarClass) {
     console.log("✅ ZAUTO: Kích hoạt khiên chống lỗi Zalo API (Max Level)!");
 }
 
-// Gọi hàm vá lỗi
 try { applyCookiePatch(require('zalo-api-final/node_modules/tough-cookie').CookieJar); } catch (e) {}
 try { applyCookiePatch(require('tough-cookie').CookieJar); } catch (e) {}
 
-// ── PATCH NODE HTTPS: Tự gắn cookie vào header khi gọi jr.chat.zalo.me ──
 import https from 'https';
 const _origHttpsRequest = https.request.bind(https);
 https.request = function(urlOrOptions, optionsOrCb, cb) {
@@ -104,8 +98,6 @@ https.request = function(urlOrOptions, optionsOrCb, cb) {
             hostname = urlOrOptions.hostname;
         }
         if (hostname.includes('jr.chat.zalo.me') || hostname.includes('jr.zalo.me')) {
-            // Đọc cookie từ chat.zalo.me trong jar của zalo context
-            // Dùng global _zaloCookieJar được set khi login
             if (global._zaloCookieJar) {
                 try {
                     const cookies = global._zaloCookieJar.getCookiesSync('https://chat.zalo.me/');
@@ -124,7 +116,7 @@ https.request = function(urlOrOptions, optionsOrCb, cb) {
 };
 
 // ─────────────────────────────────────────────
-// KHỞI TẠO BIẾN VÀ EXPRESS (ĐOẠN BẠN BỊ XÓA NHẦM)
+// KHỞI TẠO BIẾN VÀ EXPRESS
 // ─────────────────────────────────────────────
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -135,7 +127,7 @@ const zalo = new Zalo({ selfListen: false, checkUpdate: false, logging: true });
 let api = null;
 let eventQueue = [];
 let currentUserInfo = { name: 'ZAuto (Đã kết nối)', avatar: 'profile.jpg' };
-let groupCacheMap = {}; // ✅ BỔ SUNG: Biến dịch ID số thành Tên nhóm
+let groupCacheMap = {}; // ✅ Biến dịch ID số thành Tên nhóm
 
 function saveSession() {
     try {
@@ -150,7 +142,6 @@ function saveSession() {
         console.error('❌ Lỗi lưu session:', e);
     }
 }
-// ─────────────────────────────────────────────
 
 function startListener() {
     api.listener.on('connected', () => console.log('🔌 WebSocket đã kết nối!'));
@@ -163,7 +154,7 @@ function startListener() {
         const msgType = msg.data.msgType;   
         const isGroup = msg.type === 1;     
         
-        // ✅ BẢN VÁ LỖI 3: Dịch ID số thành Tên nhóm
+        // ✅ Dịch ID số thành Tên nhóm
         const realGroupName = groupCacheMap[msg.threadId] || msg.threadId;
 
         if (typeof content === 'string' && content.trim() !== '') {
@@ -225,22 +216,31 @@ async function startZalo() {
 
         eventQueue.push({ action: 'LOGIN_SUCCESS', data: currentUserInfo });
 
+        // ✅ VỊ TRÍ 1: Quét nhóm bằng Batch (Dùng cho Tự động đăng nhập / QR)
         const groups = await api.getAllGroups();
         if (groups && groups.gridVerMap) {
-            const groupIds = Object.keys(groups.gridVerMap);
-            console.log(`📋 Tìm thấy ${groupIds.length} nhóm. Đang lấy Avatar...`);
+            const allGroupIds = Object.keys(groups.gridVerMap);
+            console.log(`📋 Tìm thấy ${allGroupIds.length} nhóm. Đang lấy thông tin...`);
             let groupDetails = [];
-            for (const gid of groupIds) {
-                try {
-                    const info = await api.getGroupInfo(gid);
-                    if (info) groupDetails.push({ id: gid, name: info.groupName || info.grpName || info.name || `Nhóm ${gid}`, avatar: info.avatar || info.avt || 'profile.jpg' });
-                } catch (e) {
-                    groupDetails.push({ name: gid, avatar: 'profile.jpg' });
+            try {
+                const batchInfo = await api.getGroupInfo(allGroupIds);
+                if (batchInfo && batchInfo.gridInfoMap) {
+                    for (const gid of allGroupIds) {
+                        const info = batchInfo.gridInfoMap[gid];
+                        let gName = (info && info.name) ? info.name : `Nhóm ${gid}`;
+                        let gAvt = (info && (info.avt || info.fullAvt)) ? (info.avt || info.fullAvt) : 'profile.jpg';
+                        groupCacheMap[gid] = gName;
+                        groupDetails.push({ id: gid, name: gName, avatar: gAvt });
+                    }
                 }
+            } catch (e) {
+                console.error("Lỗi lấy danh sách nhóm:", e);
+                groupDetails = allGroupIds.map(gid => ({ id: gid, name: `Nhóm ${gid}`, avatar: 'profile.jpg' }));
             }
             eventQueue.push({ action: 'GROUPS_DATA', data: { groups: groupDetails } });
             console.log(`✅ Đã gửi danh sách nhóm lên App!`);
         }
+        
         startListener();
 
     } catch (error) {
@@ -251,7 +251,6 @@ async function startZalo() {
 
 app.get('/api/events', (req, res) => { res.json({ events: eventQueue }); eventQueue = []; });
 
-// CỔNG MỚI: NHẬN DỮ LIỆU TƯƠI TỪ TRÌNH DUYỆT ĐIỆN THOẠI (WEBVIEW ANDROID)
 app.post('/api/cookie_login', async (req, res) => {
     try {
         const { raw_cookie, imei, user_agent } = req.body;
@@ -268,24 +267,27 @@ app.post('/api/cookie_login', async (req, res) => {
         const sessionData = { cookie: api.getContext().cookie.toJSON().cookies, imei: api.getContext().imei, userAgent: api.getContext().userAgent, userInfo: currentUserInfo };
         fs.writeFileSync('cookie.json', JSON.stringify(sessionData, null, 2));
 
-        // ✅ Đẩy sự kiện LOGIN thành công cho Kivy
         eventQueue.push({ action: 'LOGIN_SUCCESS', data: currentUserInfo });
 
-        // ✅ Lấy danh sách nhóm và tạo bộ từ điển dịch Tên
+        // ✅ VỊ TRÍ 2: Quét nhóm bằng Batch (Dùng cho đăng nhập WebView)
         const groups = await api.getAllGroups();
         if (groups && groups.gridVerMap) {
-            const groupIds = Object.keys(groups.gridVerMap);
+            const allGroupIds = Object.keys(groups.gridVerMap);
             let groupDetails = [];
-            for (const gid of groupIds) {
-                try {
-                    const info = await api.getGroupInfo(gid);
-                    let gName = info.groupName || info.grpName || info.name || `Nhóm ${gid}`;
-                    groupCacheMap[gid] = gName; // Lưu vào từ điển
-                    groupDetails.push({ id: gid, name: gName, avatar: info.avatar || info.avt || 'profile.jpg' });
-                } catch (e) {
-                    groupCacheMap[gid] = gid;
-                    groupDetails.push({ name: gid, avatar: 'profile.jpg' });
+            try {
+                const batchInfo = await api.getGroupInfo(allGroupIds);
+                if (batchInfo && batchInfo.gridInfoMap) {
+                    for (const gid of allGroupIds) {
+                        const info = batchInfo.gridInfoMap[gid];
+                        let gName = (info && info.name) ? info.name : `Nhóm ${gid}`;
+                        let gAvt = (info && (info.avt || info.fullAvt)) ? (info.avt || info.fullAvt) : 'profile.jpg';
+                        groupCacheMap[gid] = gName;
+                        groupDetails.push({ id: gid, name: gName, avatar: gAvt });
+                    }
                 }
+            } catch(e) {
+                console.error("Lỗi lấy danh sách nhóm:", e);
+                groupDetails = allGroupIds.map(gid => ({ id: gid, name: `Nhóm ${gid}`, avatar: 'profile.jpg' }));
             }
             eventQueue.push({ action: 'GROUPS_DATA', data: { groups: groupDetails } });
         }
