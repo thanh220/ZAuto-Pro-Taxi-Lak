@@ -1,15 +1,19 @@
+// ─────────────────────────────────────────────
+// TẤT CẢ IMPORT PHẢI ĐẶT TRÊN CÙNG (ESM RULE)
+// ─────────────────────────────────────────────
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { Zalo, LoginQRCallbackEventType } from 'zalo-api-final';
 
-// ─────────────────────────────────────────────
-// ✅ BẢN VÁ COOKIE TỐI THƯỢNG (BỎ QUA MỌI KIỂM TRA TÊN MIỀN)
-// ─────────────────────────────────────────────
 const require = createRequire(import.meta.url);
 
+// ─────────────────────────────────────────────
+// BẢN VÁ COOKIE — SỬA LỖI DOMAIN ZALO
+// ─────────────────────────────────────────────
 function applyCookiePatch(CookieJarClass) {
     if (!CookieJarClass || CookieJarClass.__patched) return;
 
@@ -26,6 +30,7 @@ function applyCookiePatch(CookieJarClass) {
         options = options || {};
         options.ignoreError = true;
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
+        // Lưu cookie vào CẢ HAI domain để mọi subdomain đều đọc được
         if (urlStr.includes('id.zalo.me')) {
             try { _origSetCookie.call(this, cookie, urlStr.replace('id.zalo.me', 'chat.zalo.me'), options, ()=>{}); } catch(e) {}
         } else if (urlStr.includes('chat.zalo.me') && !urlStr.includes('jr.')) {
@@ -84,7 +89,10 @@ function applyCookiePatch(CookieJarClass) {
 try { applyCookiePatch(require('zalo-api-final/node_modules/tough-cookie').CookieJar); } catch (e) {}
 try { applyCookiePatch(require('tough-cookie').CookieJar); } catch (e) {}
 
-import https from 'https';
+// ─────────────────────────────────────────────
+// PATCH HTTPS — GẮN COOKIE VÀO jr.chat.zalo.me
+// global._zaloCookieJar được set ngay sau khi login thành công
+// ─────────────────────────────────────────────
 const _origHttpsRequest = https.request.bind(https);
 https.request = function(urlOrOptions, optionsOrCb, cb) {
     try {
@@ -121,13 +129,13 @@ https.request = function(urlOrOptions, optionsOrCb, cb) {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
-app.use(express.static(__dirname)); 
+app.use(express.static(__dirname));
 
 const zalo = new Zalo({ selfListen: false, checkUpdate: false, logging: true });
 let api = null;
 let eventQueue = [];
 let currentUserInfo = { name: 'ZAuto (Đã kết nối)', avatar: 'profile.jpg' };
-let groupCacheMap = {}; // ✅ Biến dịch ID số thành Tên nhóm
+let groupCacheMap = {};
 
 function saveSession() {
     try {
@@ -143,6 +151,21 @@ function saveSession() {
     }
 }
 
+// ─────────────────────────────────────────────
+// SET global._zaloCookieJar SAU KHI LOGIN
+// ─────────────────────────────────────────────
+function setCookieJarGlobal() {
+    try {
+        const ctx = api.getContext();
+        if (ctx && ctx.cookie) {
+            global._zaloCookieJar = ctx.cookie;
+            console.log('✅ Đã set global._zaloCookieJar cho patch jr.chat.zalo.me');
+        }
+    } catch(e) {
+        console.error('❌ Lỗi set cookie jar global:', e);
+    }
+}
+
 function startListener() {
     api.listener.on('connected', () => console.log('🔌 WebSocket đã kết nối!'));
     api.listener.on('disconnected', (reason) => console.warn('⚠️ WebSocket ngắt kết nối:', reason));
@@ -151,10 +174,8 @@ function startListener() {
     api.listener.on('message', (msg) => {
         if (msg.isSelf) return;
         const content = msg.data.content;
-        const msgType = msg.data.msgType;   
-        const isGroup = msg.type === 1;     
-        
-        // ✅ Dịch ID số thành Tên nhóm
+        const msgType = msg.data.msgType;
+        const isGroup = msg.type === 1;
         const realGroupName = groupCacheMap[msg.threadId] || msg.threadId;
 
         if (typeof content === 'string' && content.trim() !== '') {
@@ -186,13 +207,14 @@ async function startZalo() {
             if (savedData.userInfo) currentUserInfo = savedData.userInfo;
             api = await zalo.login({ cookie: savedData.cookie, imei: savedData.imei, userAgent: savedData.userAgent });
             console.log('✅ Đăng nhập cookie thành công!');
-            saveSession(); 
+            setCookieJarGlobal(); // ← SET NGAY SAU LOGIN
+            saveSession();
         } else {
             console.log('⚠️ Chưa có phiên đăng nhập, đang tạo mã QR...');
             api = await zalo.loginQR({ qrPath: './qr.png' }, (event) => {
                 if (event.type === LoginQRCallbackEventType.QRCodeGenerated) {
                     event.actions.saveToFile('./qr.png').then(() => {
-                        setTimeout(() => { eventQueue.push({ action: 'REQUIRE_QR', data: { url: `http://127.0.0.1:5000/qr.png?t=${Date.now()}` } }); }, 500);
+                        setTimeout(() => { eventQueue.push({ action: 'REQUIRE_QR', data: { url: `http://127.0.0.1:5000/qr.png?t=${Date.now()}` } }); }, 1500);
                     });
                 }
                 if (event.type === LoginQRCallbackEventType.QRCodeExpired) {
@@ -210,13 +232,13 @@ async function startZalo() {
                     eventQueue.push({ action: 'QR_DECLINED', data: {} });
                 }
             });
+            setCookieJarGlobal(); // ← SET NGAY SAU LOGIN QR
             saveSession();
             console.log('✅ Đăng nhập QR thành công!');
         }
 
         eventQueue.push({ action: 'LOGIN_SUCCESS', data: currentUserInfo });
 
-        // ✅ VỊ TRÍ 1: Quét nhóm bằng Batch (Dùng cho Tự động đăng nhập / QR)
         const groups = await api.getAllGroups();
         if (groups && groups.gridVerMap) {
             const allGroupIds = Object.keys(groups.gridVerMap);
@@ -240,7 +262,7 @@ async function startZalo() {
             eventQueue.push({ action: 'GROUPS_DATA', data: { groups: groupDetails } });
             console.log(`✅ Đã gửi danh sách nhóm lên App!`);
         }
-        
+
         startListener();
 
     } catch (error) {
@@ -255,7 +277,7 @@ app.post('/api/cookie_login', async (req, res) => {
     try {
         const { raw_cookie, imei, user_agent } = req.body;
         if (!raw_cookie) return res.status(400).json({error: 'Thiếu cookie'});
-        
+
         if (fs.existsSync('cookie.json')) fs.unlinkSync('cookie.json');
         if (api) { try { api.listener.stop(); } catch(e){} api = null; }
 
@@ -263,13 +285,14 @@ app.post('/api/cookie_login', async (req, res) => {
         const tempZalo = new Zalo({ selfListen: false, checkUpdate: false, logging: true });
         api = await tempZalo.login({ cookie: raw_cookie, imei: imei || undefined, userAgent: user_agent || undefined });
 
+        setCookieJarGlobal(); // ← SET NGAY SAU LOGIN WEBVIEW
+
         currentUserInfo = { name: 'ZAuto (Từ WebView)', avatar: 'profile.jpg' };
         const sessionData = { cookie: api.getContext().cookie.toJSON().cookies, imei: api.getContext().imei, userAgent: api.getContext().userAgent, userInfo: currentUserInfo };
         fs.writeFileSync('cookie.json', JSON.stringify(sessionData, null, 2));
 
         eventQueue.push({ action: 'LOGIN_SUCCESS', data: currentUserInfo });
 
-        // ✅ VỊ TRÍ 2: Quét nhóm bằng Batch (Dùng cho đăng nhập WebView)
         const groups = await api.getAllGroups();
         if (groups && groups.gridVerMap) {
             const allGroupIds = Object.keys(groups.gridVerMap);
@@ -291,7 +314,7 @@ app.post('/api/cookie_login', async (req, res) => {
             }
             eventQueue.push({ action: 'GROUPS_DATA', data: { groups: groupDetails } });
         }
-        
+
         startListener();
         res.json({status: 'success'});
     } catch (e) {
@@ -330,6 +353,7 @@ app.post('/api/restart', async (req, res) => {
     try {
         if (fs.existsSync('cookie.json')) fs.unlinkSync('cookie.json');
         if (api) { try { api.listener.stop(); } catch (_) {} api = null; }
+        global._zaloCookieJar = null; // Reset cookie jar khi restart
         res.json({ status: 'restarting' });
         setTimeout(startZalo, 500);
     } catch (e) { res.status(500).json({ error: String(e) }); }
