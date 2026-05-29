@@ -34,8 +34,8 @@ warn_on_root = 0
 # =====================================================
 # ANDROID
 # =====================================================
-android.api = 34
-android.minapi = 24
+android.api = 28
+android.minapi = 21
 android.ndk = 25b
 
 android.accept_sdk_license = True
