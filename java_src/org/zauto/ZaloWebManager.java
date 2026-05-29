@@ -1084,6 +1084,8 @@ public class ZaloWebManager {
                         super.onPageFinished(view, url);
                         CookieManager.getInstance().flush();
                         
+                        // ĐÃ TẮT: Không tiêm JS cào tin nhắn của Java nữa vì Node.js đã lo việc này
+                        /*
                         view.postDelayed(() -> {
                             try {
                                 if (hiddenWebView != null) injectSidebarObserver(hiddenWebView);
@@ -1091,6 +1093,7 @@ public class ZaloWebManager {
                                 Log.e(TAG, "Inject Error", e);
                             }
                         }, 5000);
+                        */
                     }
                     
                     @Override
@@ -1151,7 +1154,8 @@ public class ZaloWebManager {
                     });
                 }
 
-                startWatchdog();
+                // ĐÃ TẮT WATCHDOG: Giúp WebView ngủ đông hoàn toàn khi ẩn, không gây nóng máy
+                // startWatchdog();
 
             } catch (Exception e) {
                 Log.e(TAG, "Init Error", e);
