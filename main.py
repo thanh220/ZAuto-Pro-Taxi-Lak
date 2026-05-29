@@ -101,14 +101,20 @@ SUPPORT_PHONE = "0838429999"
 LICENSE_FILE = os.path.join(BASE_PATH, 'license.dat')
 TRIAL_FILE = os.path.join(BASE_PATH, 'trial_check.dat')
 def get_machine_id():
-    """Lấy ID máy chuẩn (Logic từ launcher_auto_secure.py)"""
+    """
+    Kết hợp ANDROID_ID + package name rồi hash SHA256.
+    Từ Android 8+, ANDROID_ID được scope theo từng package nên ổn định hơn.
+    """
     if platform == 'android':
         try:
             Secure = autoclass('android.provider.Settings$Secure')
             content_resolver = PythonActivity.mActivity.getContentResolver()
-            return Secure.getString(content_resolver, Secure.ANDROID_ID)
+            android_id = Secure.getString(content_resolver, Secure.ANDROID_ID) or ""
+            pkg = PythonActivity.mActivity.getPackageName() or "org.zauto.zauto"
+            combined = f"{android_id}:{pkg}"
+            return hashlib.sha256(combined.encode()).hexdigest()[:32]
         except: pass
-    return str(uuid.getnode())[:12] #
+    return str(uuid.getnode())[:12]
 
 def verify_license(lic_string, machine_id):
     """Xác thực Key dựa trên SHA256 (Logic từ keygen.py)"""
@@ -1116,19 +1122,28 @@ class ZAutoProApp(MDApp):
                     shared_val = self._decrypt_secure_data(cipher_shared, m_id)
             except: pass
 
-        # Nguồn C: Đọc file ẩn ở phân vùng bộ nhớ chung (GIỮ LẠI TRONG MỌI TRƯỜNG HỢP gỡ app hay xóa data)
-        if os.path.exists(backup_file):
+        # Nguồn C: SharedPreferences thứ 2 với tên package khác (không bị xóa khi gỡ app trên Android < 9)
+        # Dùng MODE_PRIVATE với key khác để tách biệt hoàn toàn
+        if platform == 'android':
             try:
-                with open(backup_file, 'r') as f:
-                    backup_val = self._decrypt_secure_data(f.read().strip(), m_id)
+                context = PythonActivity.mActivity
+                shared_pref2 = context.getSharedPreferences("ZAutoBackupNode", context.MODE_PRIVATE)
+                cipher_backup = shared_pref2.getString("bk_token", None)
+                if cipher_backup:
+                    backup_val = self._decrypt_secure_data(cipher_backup, m_id)
             except: pass
 
         # --- LOGIC QUYẾT ĐỊNH ĐỒNG BỘ OFFLINE ---
         # Ưu tiên lấy mốc hết hạn dùng thử nhỏ nhất/cũ nhất từng được lưu để chặn đứng hành vi gia hạn lậu
         valid_trials = []
         for val in [local_val, shared_val, backup_val]:
-            if val and val.isdigit():
-                valid_trials.append(int(val))
+            if val:
+                try:
+                    ts = int(val.strip())
+                    if ts > 0:
+                        valid_trials.append(ts)
+                except (ValueError, TypeError):
+                    pass
 
         if valid_trials:
             # Phát hiện đã từng cài app hoặc từng dùng thử: Lấy mốc thời gian dùng thử cũ nhất (an toàn nhất)
@@ -1156,12 +1171,15 @@ class ZAutoProApp(MDApp):
                 editor.commit()
             except: pass
 
-        # Đồng bộ Nguồn C (Tạo thư mục ẩn bộ nhớ chung và ghi file)
-        try:
-            os.makedirs(backup_dir, exist_ok=True)
-            with open(backup_file, 'w') as f:
-                f.write(cipher_value)
-        except: pass
+        # Đồng bộ Nguồn C (SharedPreferences backup)
+        if platform == 'android':
+            try:
+                context = PythonActivity.mActivity
+                shared_pref2 = context.getSharedPreferences("ZAutoBackupNode", context.MODE_PRIVATE)
+                editor2 = shared_pref2.edit()
+                editor2.putString("bk_token", cipher_value)
+                editor2.commit()
+            except: pass
 
         # 3. CHỐNG QUAY NGƯỢC THỜI GIAN ĐIỆN THOẠI (TIME-TRAVEL PROTECTION)
         last_runtime = self.config_data.get('last_runtime', 0)
@@ -1195,18 +1213,18 @@ class ZAutoProApp(MDApp):
             return data
 
     def _decrypt_secure_data(self, hex_data, key):
-        """Giải mã chuỗi dữ liệu phần cứng"""
-        try:
-            data = bytes.fromhex(hex_data).decode('utf-8')
-            key_hash = hashlib.sha256(key.encode()).hexdigest()
-            decrypted = []
-            for i in range(len(data)):
-                key_c = key_hash[i % len(key_hash)]
-                dec_c = chr(ord(data[i]) ^ ord(key_c))
-                decrypted.append(dec_c)
-            return "".join(decrypted)
-        except:
-            return hex_data        
+    """Giải mã chuỗi dữ liệu phần cứng"""
+    try:
+        data = bytes.fromhex(hex_data).decode('utf-8')
+        key_hash = hashlib.sha256(key.encode()).hexdigest()
+        decrypted = []
+        for i in range(len(data)):
+            key_c = key_hash[i % len(key_hash)]
+            dec_c = chr(ord(data[i]) ^ ord(key_c))
+            decrypted.append(dec_c)
+        return "".join(decrypted)
+    except:
+        return ""  # ← FIX: trả về rỗng khi lỗi, không trả rác   
 
     def apply_license_ui(self, expiry, is_trial=False):
         if expiry > 4000000000:
