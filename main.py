@@ -923,36 +923,54 @@ class ZAutoProApp(MDApp):
             # 1. KÍCH HOẠT NODE.JS BACKEND (BÀI TẨY libnode.so)
             # ==========================================
             try:
-                # Lấy thư mục đặc quyền của Android (nơi chứa libnode.so sau khi cài APK)
+                import stat
                 app_info = PythonActivity.mActivity.getApplicationInfo()
                 native_lib_dir = app_info.nativeLibraryDir
-                
-                # Đường dẫn Node.js nằm trong thư viện hệ thống
-                node_bin_path = os.path.join(native_lib_dir, 'libnode.so')
-                
-                # Đường dẫn server.js vẫn lấy từ thư mục app (vẫn giữ nguyên logic cũ)
+
+                # Đường dẫn libnode.so gốc trong nativeLibraryDir
+                node_src_path = os.path.join(native_lib_dir, 'libnode.so')
+
+                # Thư mục files/ của app — được phép exec trên mọi Android
+                files_dir = PythonActivity.mActivity.getFilesDir().getAbsolutePath()
+                node_exec_path = os.path.join(files_dir, 'node')
+
+                # Đường dẫn server.js
                 app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
                 server_js_path = os.path.join(app_dir, 'nodejs_backend', 'server.js')
                 backend_dir = os.path.join(app_dir, 'nodejs_backend')
-                
-                if os.path.exists(node_bin_path):
-                    logger.info(f"✅ Đã tìm thấy Node.js (libnode.so) tại: {node_bin_path}")
-                    
-                    # Cấp quyền thực thi cho file trong thư viện (phòng hờ)
-                    import stat
-                    try:
-                        os.chmod(node_bin_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-                    except: pass
-                    
+
+                if not os.path.exists(node_src_path):
+                    self.node_start_error = f"Không tìm thấy libnode.so tại {node_src_path}"
+                    logger.error(f"❌ {self.node_start_error}")
+                else:
+                    # Copy libnode.so sang files/node nếu chưa có hoặc kích thước khác
+                    need_copy = True
+                    if os.path.exists(node_exec_path):
+                        if os.path.getsize(node_exec_path) == os.path.getsize(node_src_path):
+                            need_copy = False
+                    if need_copy:
+                        import shutil
+                        shutil.copy2(node_src_path, node_exec_path)
+                        logger.info(f"✅ Đã copy libnode.so → {node_exec_path}")
+
+                    # Cấp quyền thực thi
+                    os.chmod(node_exec_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+                    # Thiết lập biến môi trường cho Node.js
+                    node_env = os.environ.copy()
+                    node_env['HOME'] = files_dir
+                    node_env['NODE_PATH'] = os.path.join(backend_dir, 'node_modules')
+
                     self.node_process = subprocess.Popen(
-                        [node_bin_path, server_js_path],
+                        [node_exec_path, server_js_path],
                         cwd=backend_dir,
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
+                        stderr=subprocess.PIPE,
+                        env=node_env
                     )
-                    logger.info(f"✅ Đã khởi chạy Node.js Backend thành công!")
+                    logger.info(f"✅ Đã khởi chạy Node.js từ files/node thành công! PID={self.node_process.pid}")
 
-                    # Luồng đọc log
+                    # Luồng đọc log Node.js
                     def _read_node_stderr():
                         for line in self.node_process.stderr:
                             try: logger.error(f"[NODE ERR] {line.decode('utf-8', errors='ignore').strip()}")
@@ -965,10 +983,10 @@ class ZAutoProApp(MDApp):
 
                     threading.Thread(target=_read_node_stderr, daemon=True).start()
                     threading.Thread(target=_read_node_stdout, daemon=True).start()
-                else:
-                    logger.error(f"❌ KHÔNG TÌM THẤY FILE LIBNODE.SO TẠI: {node_bin_path}")
+
             except Exception as e:
-                logger.error(f"❌ Lỗi khởi chạy Node.js: {e}")
+                self.node_start_error = str(e)
+                logger.error(f"❌ Lỗi khởi chạy Node.js: {traceback.format_exc()}")
 
             # ==========================================
             # 2. CẤU HÌNH HỆ THỐNG ANDROID (CHỐNG NGỦ ĐÔNG & QUYỀN)
