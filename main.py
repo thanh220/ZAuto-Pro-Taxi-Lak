@@ -101,14 +101,20 @@ SUPPORT_PHONE = "0838429999"
 LICENSE_FILE = os.path.join(BASE_PATH, 'license.dat')
 TRIAL_FILE = os.path.join(BASE_PATH, 'trial_check.dat')
 def get_machine_id():
-    """Lấy ID máy chuẩn (Logic từ launcher_auto_secure.py)"""
+    """
+    Kết hợp ANDROID_ID + package name rồi hash SHA256.
+    Từ Android 8+, ANDROID_ID được scope theo từng package nên ổn định hơn.
+    """
     if platform == 'android':
         try:
             Secure = autoclass('android.provider.Settings$Secure')
             content_resolver = PythonActivity.mActivity.getContentResolver()
-            return Secure.getString(content_resolver, Secure.ANDROID_ID)
+            android_id = Secure.getString(content_resolver, Secure.ANDROID_ID) or ""
+            pkg = PythonActivity.mActivity.getPackageName() or "org.zauto.zauto"
+            combined = f"{android_id}:{pkg}"
+            return hashlib.sha256(combined.encode()).hexdigest()[:32]
         except: pass
-    return str(uuid.getnode())[:12] #
+    return str(uuid.getnode())[:12]
 
 def verify_license(lic_string, machine_id):
     """Xác thực Key dựa trên SHA256 (Logic từ keygen.py)"""
@@ -347,6 +353,9 @@ MDScreen:
             name: 'tab_zalo'
             text: 'Zalo'
             icon: 'account-circle'
+            on_tab_press: app._init_webview_android()
+            on_enter: app.set_webview_visible(True)
+            on_leave: app.set_webview_visible(False)
             
 
             MDBoxLayout:
@@ -389,13 +398,13 @@ MDScreen:
                     # ---> NÚT NÀY CŨNG ĐÃ LÙI LỀ VÀO TRONG <---
                     MDRaisedButton:
                         id: btn_zalo_action
-                        text: "TẢI LẠI"
+                        text: "1. ĐỒNG BỘ ZALO"
                         size_hint_y: None
                         height: "36dp"
-                        md_bg_color: 1, 1, 1, 0.25
+                        md_bg_color: 0.1, 0.6, 0.2, 1
                         pos_hint: {"center_y": .5}
                         elevation: 0
-                        on_release: app.reload_zalo_web()
+                        on_release: app.sync_cookie_from_webview()
 
                 # ---> HỘP CHỨA WEBVIEW PHẢI NẰM NGOÀI ĐỂ XẾP DƯỚI THANH STATUS <---
                 MDBoxLayout:
@@ -608,6 +617,23 @@ MDScreen:
                                     pos_hint: {"center_y": .5}
                                     on_release: inp_reply.text = app.Clipboard.paste()
                                 
+                            # ✅ BỔ SUNG Ô NHẬP API KEY OCR TẠI ĐÂY
+                            MDBoxLayout:
+                                orientation: "horizontal"
+                                size_hint_y: None
+                                height: "50dp"
+                                spacing: "10dp"
+                                TextInput:
+                                    id: inp_ocr_key
+                                    hint_text: "Mã API Key OCR (Đọc ảnh)"
+                                    multiline: False
+                                    background_color: 0.9, 1, 0.9, 1  # Đổi nhẹ màu xanh cho nổi bật
+                                    foreground_color: 0, 0, 0, 1
+                                MDIconButton:
+                                    icon: "content-paste"
+                                    pos_hint: {"center_y": .5}
+                                    on_release: inp_ocr_key.text = app.Clipboard.paste()
+
                             TextInput:
                                 id: inp_delay
                                 hint_text: "Khoảng cách chốt 2 cuốc (giây)"
@@ -627,6 +653,17 @@ MDScreen:
                             background_normal: ''
                             background_color: 0.1, 0.5, 0.8, 1
                             on_release: app.save_config()
+
+                        # ✅ BỔ SUNG NÚT HƯỚNG DẪN Ở ĐÂY
+                        Button:
+                            text: "📖 HƯỚNG DẪN SỬ DỤNG & LẤY MÃ OCR"
+                            size_hint_x: 1
+                            size_hint_y: None
+                            height: "45dp"
+                            bold: True
+                            background_normal: ''
+                            background_color: 0.8, 0.4, 0.1, 1
+                            on_release: app.show_guide_popup()
 
                         MDBoxLayout:
                             orientation: "vertical"
@@ -663,6 +700,16 @@ MDScreen:
                                 background_normal: ''
                                 background_color: 0.1, 0.6, 0.2, 1
                                 on_release: app.show_activation_popup_from_settings()
+
+                            Button:
+                                text: "🛠 KIỂM TRA LỖI HỆ THỐNG"
+                                size_hint_y: None
+                                height: "35dp"
+                                pos_hint: {"center_x": .5}
+                                bold: True
+                                background_normal: ''
+                                background_color: 0.4, 0.4, 0.4, 1
+                                on_release: app.show_system_debug()
 
                         MDBoxLayout:
                             size_hint_y: None
@@ -876,27 +923,38 @@ class ZAutoProApp(MDApp):
             # ==========================================
             try:
                 # Lấy thư mục gốc chứa file app của Kivy trên điện thoại
-                app_dir = os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files/app')
+                app_dir = os.path.join(
+                    os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'),
+                    'app'
+                )
                 
                 # Phát hiện kiến trúc CPU của điện thoại
                 cpu_arch = std_platform.machine().lower()
                 
-                # Chọn đúng file chạy (Binary)
                 if 'aarch64' in cpu_arch or 'arm64' in cpu_arch:
-                    node_file = 'node_arm64'
+                    node_file = 'node_arm64' # <-- Đã loại bỏ .bin
                     logger.info("📱 Phát hiện CPU 64-bit -> Dùng Node.js ARM64")
                 else:
-                    node_file = 'node_armv7'
+                    node_file = 'node_armv7' # <-- Đã loại bỏ .bin
                     logger.info("📱 Phát hiện CPU 32-bit -> Dùng Node.js ARMv7")
                     
                 node_bin_path = os.path.join(app_dir, 'nodejs_backend', 'bin', node_file)
+                if os.path.exists(node_bin_path):
+                    logger.info(f"✅ Đã tìm thấy file Node tại: {node_bin_path}")
+                    # Dùng thư viện chuẩn của Python để ép quyền 777 cho Node.js (Chống lỗi Permission Denied)
+                    import stat
+                    try:
+                        os.chmod(node_bin_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                    except Exception as ce:
+                        logger.error(f"Lỗi cấp quyền Node: {ce}")
+                else:
+                    logger.error(f"❌ KHÔNG TÌM THẤY FILE NODE TẠI: {node_bin_path}")
                 server_js_path = os.path.join(app_dir, 'nodejs_backend', 'server.js')
                 backend_dir = os.path.join(app_dir, 'nodejs_backend')
                 
                 # Cấp quyền thực thi cho file node
                 os.system(f"chmod +x {node_bin_path}")
                 
-                # Chạy tiến trình ngầm Node.js
                 self.node_process = subprocess.Popen(
                     [node_bin_path, server_js_path],
                     cwd=backend_dir,
@@ -904,6 +962,22 @@ class ZAutoProApp(MDApp):
                     stderr=subprocess.PIPE
                 )
                 logger.info(f"✅ Đã khởi chạy Node.js Backend ({node_file}) thành công!")
+
+                # ✅ THÊM: Đọc stderr để biết Node.js lỗi gì
+                def _read_node_stderr():
+                    for line in self.node_process.stderr:
+                        try:
+                            logger.error(f"[NODE ERR] {line.decode('utf-8', errors='ignore').strip()}")
+                        except: pass
+
+                def _read_node_stdout():
+                    for line in self.node_process.stdout:
+                        try:
+                            logger.info(f"[NODE] {line.decode('utf-8', errors='ignore').strip()}")
+                        except: pass
+
+                threading.Thread(target=_read_node_stderr, daemon=True).start()
+                threading.Thread(target=_read_node_stdout, daemon=True).start()
             except Exception as e:
                 logger.error(f"❌ Lỗi khởi chạy Node.js: {e}")
 
@@ -916,8 +990,6 @@ class ZAutoProApp(MDApp):
                 PythonActivity.mActivity.setRequestedOrientation(
                     ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 )
-
-                
 
                 # ÉP CPU KHÔNG NGỦ (MỨC 1)
                 PowerManager = autoclass('android.os.PowerManager')
@@ -934,35 +1006,35 @@ class ZAutoProApp(MDApp):
                 if not self.wifilock.isHeld():
                     self.wifilock.acquire()
 
-                # ==========================================
-                # 3. KHỞI TẠO KIẾN TRÚC REALTIME VÀ WORKER
-                # ==========================================
-                self.processed_msg_hashes = LRUCache(maxsize=1000)
-                self.global_last_reply = 0
-                self.last_reply_time = LRUCache(maxsize=200)
-
-                # Luồng 1: Xử lý nội dung tin nhắn
-                self.msg_worker_thread = threading.Thread(target=self._message_worker, daemon=True)
-                self.msg_worker_thread.start()
-
-                # Luồng 2: Gọi lệnh gửi tin nhắn chốt cuốc
-                self.reply_worker_thread = threading.Thread(target=self._reply_worker_loop, daemon=True)
-                self.reply_worker_thread.start()
-
-                # Luồng 3: Đọc giọng nói (TTS)
-                self.audio_worker_thread = threading.Thread(target=self._audio_worker_loop, daemon=True)
-                self.audio_worker_thread.start()
-
-                # Luồng 4: Giao tiếp với API Node.js ngầm 24/24
-                self.poll_worker_thread = threading.Thread(target=self._nodejs_poll_worker, daemon=True)
-                self.poll_worker_thread.start()
-
-                # Khởi chạy các bộ đếm thời gian
-                Clock.schedule_interval(self._system_watchdog, 180)
-                Clock.schedule_interval(self._process_ui_queue, 0.1)
-
             except Exception as e:
                 logger.error(f"Lỗi on_start cấu hình Android: {traceback.format_exc()}")
+
+        # ==========================================
+        # 3. KHỞI TẠO KIẾN TRÚC REALTIME VÀ WORKER (CHẠY ĐƯỢC CẢ TRÊN PC)
+        # ==========================================
+        self.processed_msg_hashes = LRUCache(maxsize=1000)
+        self.global_last_reply = 0
+        self.last_reply_time = LRUCache(maxsize=200)
+
+        # Luồng 1: Xử lý nội dung tin nhắn
+        self.msg_worker_thread = threading.Thread(target=self._message_worker, daemon=True)
+        self.msg_worker_thread.start()
+
+        # Luồng 2: Gọi lệnh gửi tin nhắn chốt cuốc
+        self.reply_worker_thread = threading.Thread(target=self._reply_worker_loop, daemon=True)
+        self.reply_worker_thread.start()
+
+        # Luồng 3: Đọc giọng nói (TTS)
+        self.audio_worker_thread = threading.Thread(target=self._audio_worker_loop, daemon=True)
+        self.audio_worker_thread.start()
+
+        # Luồng 4: Giao tiếp với API Node.js ngầm 24/24
+        self.poll_worker_thread = threading.Thread(target=self._nodejs_poll_worker, daemon=True)
+        self.poll_worker_thread.start()
+
+        # Khởi chạy các bộ đếm thời gian
+        Clock.schedule_interval(self._system_watchdog, 180)
+        Clock.schedule_interval(self._process_ui_queue, 0.1)
     def update_group_list_ui(self, groups):
         """Cập nhật danh sách nhóm kèm Avatar từ Zalo Web"""
         try:
@@ -1065,19 +1137,28 @@ class ZAutoProApp(MDApp):
                     shared_val = self._decrypt_secure_data(cipher_shared, m_id)
             except: pass
 
-        # Nguồn C: Đọc file ẩn ở phân vùng bộ nhớ chung (GIỮ LẠI TRONG MỌI TRƯỜNG HỢP gỡ app hay xóa data)
-        if os.path.exists(backup_file):
+        # Nguồn C: SharedPreferences thứ 2 với tên package khác (không bị xóa khi gỡ app trên Android < 9)
+        # Dùng MODE_PRIVATE với key khác để tách biệt hoàn toàn
+        if platform == 'android':
             try:
-                with open(backup_file, 'r') as f:
-                    backup_val = self._decrypt_secure_data(f.read().strip(), m_id)
+                context = PythonActivity.mActivity
+                shared_pref2 = context.getSharedPreferences("ZAutoBackupNode", context.MODE_PRIVATE)
+                cipher_backup = shared_pref2.getString("bk_token", None)
+                if cipher_backup:
+                    backup_val = self._decrypt_secure_data(cipher_backup, m_id)
             except: pass
 
         # --- LOGIC QUYẾT ĐỊNH ĐỒNG BỘ OFFLINE ---
         # Ưu tiên lấy mốc hết hạn dùng thử nhỏ nhất/cũ nhất từng được lưu để chặn đứng hành vi gia hạn lậu
         valid_trials = []
         for val in [local_val, shared_val, backup_val]:
-            if val and val.isdigit():
-                valid_trials.append(int(val))
+            if val:
+                try:
+                    ts = int(val.strip())
+                    if ts > 0:
+                        valid_trials.append(ts)
+                except (ValueError, TypeError):
+                    pass
 
         if valid_trials:
             # Phát hiện đã từng cài app hoặc từng dùng thử: Lấy mốc thời gian dùng thử cũ nhất (an toàn nhất)
@@ -1105,12 +1186,15 @@ class ZAutoProApp(MDApp):
                 editor.commit()
             except: pass
 
-        # Đồng bộ Nguồn C (Tạo thư mục ẩn bộ nhớ chung và ghi file)
-        try:
-            os.makedirs(backup_dir, exist_ok=True)
-            with open(backup_file, 'w') as f:
-                f.write(cipher_value)
-        except: pass
+        # Đồng bộ Nguồn C (SharedPreferences backup)
+        if platform == 'android':
+            try:
+                context = PythonActivity.mActivity
+                shared_pref2 = context.getSharedPreferences("ZAutoBackupNode", context.MODE_PRIVATE)
+                editor2 = shared_pref2.edit()
+                editor2.putString("bk_token", cipher_value)
+                editor2.commit()
+            except: pass
 
         # 3. CHỐNG QUAY NGƯỢC THỜI GIAN ĐIỆN THOẠI (TIME-TRAVEL PROTECTION)
         last_runtime = self.config_data.get('last_runtime', 0)
@@ -1155,7 +1239,7 @@ class ZAutoProApp(MDApp):
                 decrypted.append(dec_c)
             return "".join(decrypted)
         except:
-            return hex_data        
+            return ""  # ← FIX: thụt lề chuẩn, trả về rỗng khi lỗi  
 
     def apply_license_ui(self, expiry, is_trial=False):
         if expiry > 4000000000:
@@ -1408,7 +1492,68 @@ class ZAutoProApp(MDApp):
                 try:
                     self.ui_queue.put_nowait(('remove_by_key', cache_key))
                 except queue.Full: pass
+    def sync_cookie_from_webview(self):
+        """Hút cookie từ Java WebView và gửi cho Node.js (Bản Đa Luồng chống đơ App)"""
+        if platform == 'android':
+            try:
+                from jnius import autoclass
+                import requests
+                import threading  # <--- Bắt buộc phải có để tạo luồng ngầm
+                from kivy.clock import Clock
+                
+                self.safe_toast("Đang đồng bộ dữ liệu Zalo...")
+                ZWebManager = autoclass('org.zauto.ZaloWebManager')
+                
+                # Gọi Java để hút đủ Bộ 3 Thần Thánh
+                raw_cookie = ZWebManager.extractZaloCookie()
+                imei = ZWebManager.getImei()
+                user_agent = ZWebManager.getUserAgent()
+                
+                if not raw_cookie or "zpw_sek" not in raw_cookie:
+                    self.safe_toast("❌ Bạn chưa đăng nhập Zalo trên khung Web bên dưới!")
+                    return
+                    
+                # Đóng gói cả 3 thông số gửi xuống Node.js
+                payload = {
+                    "raw_cookie": raw_cookie,
+                    "imei": imei,
+                    "user_agent": user_agent
+                }
 
+                # TẠO LUỒNG RIÊNG ĐỂ GỬI API - KHÔNG LÀM ĐƠ GIAO DIỆN
+                def _send_api_thread():
+                    try:
+                        # Tăng timeout lên 35 giây để Node.js có đủ thời gian mã hóa đăng nhập Zalo
+                        res = requests.post("http://127.0.0.1:5000/api/cookie_login", json=payload, timeout=35)
+                        
+                        if res.status_code == 200:
+                            self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
+                            self.config_data['is_linked'] = True
+                            self.is_linked = True
+                            self.save_config_silent()
+                            
+                            # Kivy bắt buộc phải update UI trên luồng chính thông qua Clock
+                            def _update_ui_after_sync(dt):
+                                self.update_profile_ui()
+                                self.set_webview_visible(False)
+                                # ✅ Đổi nút thành HUỶ màu đỏ ngay lập tức để user biết
+                                try:
+                                    self.root.ids.btn_zalo_action.text = "HUỶ LIÊN KẾT ZALO"
+                                    self.root.ids.btn_zalo_action.md_bg_color = (0.8, 0.2, 0.2, 1)
+                                except: pass
+                            Clock.schedule_once(_update_ui_after_sync, 0)
+                        else:
+                            self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
+                    except Exception as e:
+                        logger.error(f"Lỗi sync cookie ngầm: {e}")
+                        self.safe_toast("❌ Node.js chưa chạy xong, vui lòng đợi 5s và bấm lại.")
+                        
+                # Kích hoạt luồng chạy ngầm
+                threading.Thread(target=_send_api_thread, daemon=True).start()
+                
+            except Exception as e:
+                logger.error(f"Lỗi sync cookie: {e}")
+                self.safe_toast("❌ Lỗi kết nối đến Server ngầm.")
     def _system_watchdog(self, dt):
         """Khôi phục Worker, Tối ưu RAM và chặn nhân bản Thread"""
         self.gc_counter += 1
@@ -1556,6 +1701,7 @@ class ZAutoProApp(MDApp):
                     elif action == 'WEB_NEW_MSG':
                         if getattr(self, 'is_radar_running', False):
                             group_id = data.get('group_id', '')
+                            group_name = data.get('group_name', group_id) # ✅ Lấy TÊN NHÓM thật
                             sender = data.get('sender_name', '')
                             text = data.get('text', '')
                             msg_id = data.get('msg_id', '')
@@ -1564,7 +1710,7 @@ class ZAutoProApp(MDApp):
                             self.msg_queue.put_nowait((
                                 'WEB_NEW_MSG',
                                 {
-                                    'group': group_id,
+                                    'group': group_name,
                                     'msg': full_msg,
                                     'msg_id': msg_id,
                                     'conversation_id': group_id,
@@ -1576,6 +1722,7 @@ class ZAutoProApp(MDApp):
                     elif action == 'WEB_NEW_VOICE':
                         if getattr(self, 'is_radar_running', False):
                             group_id = data.get('group_id', '')
+                            group_name = data.get('group_name', group_id) # ✅ Lấy TÊN NHÓM thật
                             sender = data.get('sender_name', '')
                             msg_id = data.get('msg_id', '')
                             voice_url = data.get('voice_url', '')
@@ -1584,7 +1731,7 @@ class ZAutoProApp(MDApp):
                             self.msg_queue.put_nowait((
                                 'WEB_NEW_MSG',
                                 {
-                                    'group': group_id,
+                                    'group': group_name,
                                     'msg': voice_text,
                                     'msg_id': msg_id,
                                     'conversation_id': group_id,
@@ -1594,6 +1741,23 @@ class ZAutoProApp(MDApp):
                                 }
                             ))
 
+                    # ✅ XỬ LÝ TIN NHẮN ẢNH (BẮT CUỐC QUA HÌNH CHỤP)
+                    elif action == 'WEB_NEW_PHOTO':
+                        if getattr(self, 'is_radar_running', False):
+                            group_id = data.get('group_id', '')
+                            group_name = data.get('group_name', group_id) # ✅ Lấy TÊN NHÓM thật
+                            sender = data.get('sender_name', '')
+                            photo_url = data.get('photo_url', '')
+                            msg_id = data.get('msg_id', '')
+                            is_group = data.get('is_group', True)
+                            raw_data = data.get('raw_data', {})
+                            
+                            if photo_url:
+                                threading.Thread(
+                                    target=self._process_image_ocr_thread,
+                                    args=(photo_url, group_id, group_name, sender, msg_id, is_group, raw_data), # ✅ Pass CẢ ID LẪN TÊN
+                                    daemon=True
+                                ).start()
         except requests.exceptions.RequestException:
             pass
         except Exception as e:
@@ -1608,6 +1772,13 @@ class ZAutoProApp(MDApp):
         self.root.ids.btn_zalo_action.text = "ĐANG CHỜ QUÉT..."
         self.root.ids.btn_zalo_action.md_bg_color = (0.8, 0.4, 0.1, 1)
         self.root.ids.bottom_nav.switch_tab('tab_zalo')
+
+        # ✅ ẨN WEBVIEW JAVA ĐI ĐỂ QR KIVY KHÔNG BỊ CHE
+        if platform == 'android':
+            try:
+                self.set_webview_visible(False)
+            except Exception as e:
+                logger.error(f"Lỗi ẩn WebView khi show QR: {e}")
 
         # ✅ TẢI ẢNH TRÊN LUỒNG RIÊNG, KHÔNG BLOCK KIVY UI
         def _load_qr_thread():
@@ -1625,10 +1796,10 @@ class ZAutoProApp(MDApp):
                     # ✅ Chỉ thao tác Widget trên luồng UI
                     def _update_ui(dt):
                         try:
-                            from kivy.uix.image import Image
-                            qr_widget = Image(texture=core_image.texture, size_hint=(1, 1))
+                            from kivy.uix.image import Image as KivyImage
                             container = self.root.ids.webview_container
                             container.clear_widgets()
+                            qr_widget = KivyImage(texture=core_image.texture, size_hint=(1, 1))
                             container.add_widget(qr_widget)
                         except Exception as e:
                             logger.error(f"Lỗi vẽ QR lên UI: {e}")
@@ -1637,16 +1808,15 @@ class ZAutoProApp(MDApp):
             except Exception as e:
                 logger.error(f"Lỗi tải ảnh QR: {e}")
 
-        # ✅ DÒNG NÀY PHẢI ĐƯỢC THỤT VÀO NGANG VỚI CHỮ "def _load_qr_thread():"
         threading.Thread(target=_load_qr_thread, daemon=True).start()
     def _nodejs_poll_worker(self):
-     """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
-     while getattr(self, 'app_running', True):
-         try:
-             self._poll_nodejs_queue(None)
-         except Exception:
-             pass
-         time.sleep(0.5) # Quét Node.js 0.5s/lần 
+        """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
+        while getattr(self, 'app_running', True):
+            try:
+                self._poll_nodejs_queue(None)
+            except Exception:
+                pass
+            time.sleep(0.5) # Quét Node.js 0.5s/lần
 
     def add_ride_card(self, group, msg, msg_id="", conversation_id="", cache_key="", raw_msg=""):
         try:
@@ -1794,6 +1964,7 @@ class ZAutoProApp(MDApp):
             if ids.get('inp_nhan'): ids.inp_nhan.text = self.config_data.get('nhan', '')
             if ids.get('inp_loai'): ids.inp_loai.text = self.config_data.get('loai', '')
             if ids.get('inp_reply'): ids.inp_reply.text = self.config_data.get('reply_msg', 'Ok nhận')
+            if ids.get('inp_ocr_key'): ids.inp_ocr_key.text = self.config_data.get('ocr_api_key', 'K86976001788957')
             if ids.get('inp_delay'): ids.inp_delay.text = self.config_data.get('global_delay', '30')
             if ids.get('sw_filter'): ids.sw_filter.active = self.config_data.get('sw_filter', False)
             
@@ -1836,6 +2007,72 @@ class ZAutoProApp(MDApp):
                 ids.btn_zalo_action.md_bg_color = (0.8, 0.2, 0.2, 1) if self.is_linked else (0.1, 0.5, 0.8, 1)
         except Exception as e:
             print(f"Lỗi UI Profile: {e}")
+    def _init_webview_android(self):
+        if self.webview_inited: return
+        if platform == 'android':
+            try:
+                activity = PythonActivity.mActivity
+                autoclass('org.zauto.ZaloWebManager').initWebView(activity)
+                self.webview_inited = True
+            except Exception:
+                print(traceback.format_exc())
+
+    def set_webview_visible(self, is_visible):
+        # --- THÊM 2 DÒNG NÀY ĐỂ BẢO VỆ GIAO DIỆN ---
+        # Nếu đã liên kết Node.js thành công -> Cấm hiện lại WebView để không đè UI
+        if is_visible and getattr(self, 'is_linked', False):
+            is_visible = False
+
+        self.webview_visible = is_visible
+        if is_visible:
+            self.update_profile_ui()
+            self.last_webview_bounds = None
+            if not getattr(self, '_webview_timer', None):
+                self._webview_timer = Clock.schedule_interval(self._sync_webview_pos, 0.2)
+            def _do_resume(dt):
+                if platform == 'android' and getattr(self, 'webview_inited', False):
+                    try:
+                        from jnius import autoclass
+                        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                        autoclass('org.zauto.ZaloWebManager').onResume(PythonActivity.mActivity)
+                    except Exception: pass
+            Clock.schedule_once(_do_resume, 0.5)
+        else:
+            if getattr(self, '_webview_timer', None):
+                self._webview_timer.cancel()
+                self._webview_timer = None
+            if platform == 'android' and self.webview_inited:
+                self._hide_webview_overlay()
+
+    @run_on_ui_thread
+    def _hide_webview_overlay(self):
+        try:
+            autoclass('org.zauto.ZaloWebManager').updateWebViewBounds(
+                PythonActivity.mActivity, 0, 0, 0, 0, False)
+        except Exception: pass
+
+    def _sync_webview_pos(self, dt):
+        if platform != 'android' or not getattr(self, 'webview_inited', False) or not getattr(self, 'webview_visible', False):
+            return
+        try:
+            container = self.root.ids.webview_container
+            if not container.get_root_window():
+                return
+            x, y = container.to_window(0, 0)
+            w, h = container.size
+            android_y = Window.height - (y + h)
+            new_bounds = (int(x), int(android_y), int(w), int(h))
+            if new_bounds == getattr(self, 'last_webview_bounds', None):
+                return
+            if int(w) <= 0 or int(h) <= 0:
+                return
+            self.last_webview_bounds = new_bounds
+            autoclass('org.zauto.ZaloWebManager').updateWebViewBounds(
+                PythonActivity.mActivity,
+                new_bounds[0], new_bounds[1], new_bounds[2], new_bounds[3], True
+            )
+        except Exception: pass        
+            
 
     def save_config(self):
         """BẮT BUỘC ĐỌC UI VÀO BIẾN TRƯỚC KHI XUỐNG DB"""
@@ -1844,6 +2081,7 @@ class ZAutoProApp(MDApp):
             if ids.get('inp_nhan'): self.config_data['nhan'] = ids.inp_nhan.text
             if ids.get('inp_loai'): self.config_data['loai'] = ids.inp_loai.text
             if ids.get('inp_reply'): self.config_data['reply_msg'] = ids.inp_reply.text
+            if ids.get('inp_ocr_key'): self.config_data['ocr_api_key'] = ids.inp_ocr_key.text.strip()
             if ids.get('inp_delay'): self.config_data['global_delay'] = ids.inp_delay.text
             if ids.get('sw_filter'): self.config_data['sw_filter'] = ids.sw_filter.active
             if ids.get('sw_auto_main'): self.config_data['sw_auto'] = ids.sw_auto_main.active
@@ -1866,8 +2104,7 @@ class ZAutoProApp(MDApp):
     def check_permissions_and_guide(self):
         self.safe_toast("Bản cập nhật mới dùng API ngầm, không cần cấp quyền Trợ Năng nữa!")
 
-    def reload_zalo_web(self):
-        pass # Không dùng WebView nữa nên không cần reload
+    
 
     def show_update_popup(self, server_ver, update_note, apk_url):
         """Hiện popup cập nhật - responsive theo màn hình, đồng bộ style app"""
@@ -2072,11 +2309,12 @@ class ZAutoProApp(MDApp):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.app_running = True
-        self.is_radar_running = False  
-        self.enabled_groups = {}       
+        self.is_radar_running = False
+        self.enabled_groups = {}
         self.webview_inited = False
         self.webview_visible = False
-        self._webview_timer = None 
+        self._webview_timer = None
+        self.last_webview_bounds = None
         self.config_data = {}
         self.is_linked = False
         
@@ -2148,11 +2386,10 @@ class ZAutoProApp(MDApp):
         except Exception as e:
             logger.error(f"Lỗi remove_ride_by_key: {e}")
 
-    
+    def show_guide_popup(self):
+        popup = GuidePopup()
+        popup.open()
 
-    @run_on_ui_thread
-    def _hide_webview_overlay(self):
-        pass
     
     def request_ignore_battery(self):
         if platform == 'android':
@@ -2246,6 +2483,185 @@ class ZAutoProApp(MDApp):
             UrlRequest(no_cache_url, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
         except Exception as e:
             logger.error(f"Lỗi gọi UrlRequest: {e}")
+    def _process_image_ocr_thread(self, photo_url, group_id, group_name, sender, msg_id, is_group, raw_data):
+        """Luồng ngầm: Nhờ máy chủ OCR.space đọc chữ trong ảnh"""
+        import requests
+        try:
+            api_key = self.config_data.get('ocr_api_key', '').strip()
+            if not api_key:
+                api_key = "K86976001788957"
+            
+            url = f"https://api.ocr.space/parse/imageurl?apikey={api_key}&url={photo_url}&language=vie&isOverlayRequired=false"
 
+            res = requests.get(url, timeout=15)
+            if res.status_code == 200:
+                result = res.json()
+                
+                # Kiểm tra nếu đọc thành công và có chữ
+                if not result.get('IsErroredOnProcessing') and result.get('ParsedResults'):
+                    text_found = result['ParsedResults'][0].get('ParsedText', '').strip()
+
+                    if text_found:
+                        # Đã đọc được chữ -> Biến nó thành một tin nhắn chữ bình thường
+                        full_msg = f"{sender}: [Ảnh] {text_found}" if sender else f"[Ảnh] {text_found}"
+
+                        # Đẩy vào hàng đợi (Queue) để Radar bắt cuốc quét Regex như tin text
+                        self.msg_queue.put_nowait((
+                            'WEB_NEW_MSG',
+                            {
+                                'group': group_name,          # ✅ Tên nhóm để kiểm tra Filter và hiện UI
+                                'msg': full_msg,
+                                'msg_id': msg_id,
+                                'conversation_id': group_id,  # ✅ Bắt buộc giữ ID gốc để API gửi tin chốt
+                                'is_group': is_group,
+                                'raw_data': raw_data
+                            }
+                        ))
+                        logger.info(f"📷 Đã dịch OCR thành công: {text_found[:50]}...")
+        except Exception as e:
+            logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")
+    def show_system_debug(self):
+        """Hàm siêu âm toàn bộ hệ thống để tìm lỗi Node.js/APK"""
+        import os
+        import socket
+        import platform as std_platform
+        
+        log_text = "[b]TRẠNG THÁI HỆ THỐNG:[/b]\n\n"
+        
+        # 1. Thông tin thiết bị
+        cpu_arch = std_platform.machine().lower()
+        log_text += f"📱 CPU: {cpu_arch}\n\n"
+        
+        # 2. Kiểm tra File Node.js
+        app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
+        node_arm64 = os.path.join(app_dir, 'nodejs_backend', 'bin', 'node_arm64')
+        node_armv7 = os.path.join(app_dir, 'nodejs_backend', 'bin', 'node_armv7')
+        server_js = os.path.join(app_dir, 'nodejs_backend', 'server.js')
+        
+        active_node = node_arm64 if 'aarch64' in cpu_arch or 'arm64' in cpu_arch else node_armv7
+        
+        if os.path.exists(active_node):
+            log_text += f"✅ File Node: TỒN TẠI\n"
+            log_text += f"   - Quyền thực thi (X_OK): {os.access(active_node, os.X_OK)}\n"
+        else:
+            log_text += f"❌ File Node: KHÔNG TÌM THẤY (Build APK bị thiếu file)\n"
+            
+        if os.path.exists(server_js):
+            log_text += f"✅ File server.js: TỒN TẠI\n"
+        else:
+            log_text += f"❌ File server.js: KHÔNG TÌM THẤY\n"
+            
+        # 3. Kiểm tra Tiến trình Node
+        log_text += "\n"
+        if hasattr(self, 'node_process') and self.node_process:
+            status = self.node_process.poll()
+            if status is None:
+                log_text += "✅ Tiến trình Node: ĐANG CHẠY\n"
+            else:
+                log_text += f"❌ Tiến trình Node: ĐÃ CHẾT (Mã lỗi: {status})\n"
+                # Đọc thử lỗi cuối cùng nếu có
+                try:
+                    err_out = self.node_process.stderr.read()
+                    if err_out:
+                        log_text += f"   - Chi tiết: {err_out.decode('utf-8')[:100]}\n"
+                except: pass
+        else:
+            log_text += "❌ Tiến trình Node: CHƯA KHỞI ĐỘNG\n"
+            
+        # 4. Kiểm tra Cổng API 5000
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1.0)
+        try:
+            result = sock.connect_ex(('127.0.0.1', 5000))
+            if result == 0:
+                log_text += "✅ Cổng 5000: ĐÃ MỞ (Sẵn sàng API)\n"
+            else:
+                log_text += f"❌ Cổng 5000: BỊ ĐÓNG (Code: {result})\n"
+        except Exception as e:
+            log_text += f"❌ Lỗi quét cổng: {e}\n"
+        finally:
+            sock.close()
+            
+        # Hiển thị lên màn hình
+        content = BoxLayout(orientation='vertical', padding="10dp")
+        lbl = Label(text=log_text, markup=True, halign='left', valign='top', text_size=(Window.width * 0.8, None))
+        lbl.bind(texture_size=lbl.setter('size'))
+        scroll = ScrollView(size_hint=(1, 1))
+        scroll.add_widget(lbl)
+        
+        btn = Button(text="ĐÓNG", size_hint_y=None, height="45dp", background_color=(0.8, 0.2, 0.2, 1))
+        
+        content.add_widget(scroll)
+        content.add_widget(btn)
+        
+        popup = Popup(title="Báo cáo gỡ lỗi", content=content, size_hint=(0.9, 0.7), auto_dismiss=False)
+        btn.bind(on_release=popup.dismiss)
+        popup.open()        
+class GuidePopup(Popup):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.title = "📖 BÍ KÍP SỬ DỤNG ZAUTO VIP"
+        self.size_hint = (0.95, 0.85) # Rộng 95%, Cao 85% màn hình
+        self.background = ""  
+        self.background_color = (1, 1, 1, 1) 
+        self.title_color = (0, 0, 0, 1)      
+        self.separator_color = (0.1, 0.5, 0.8, 1)
+
+        root_scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+        main_layout = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(15), size_hint_y=None)
+        main_layout.bind(minimum_height=main_layout.setter('height'))
+
+        guide_text = """[b]1. TÍNH NĂNG ĐỌC ẢNH (OCR)[/b]
+• App có thể đọc chữ trong ảnh chụp màn hình cuốc xe.
+• Nhấp nút xanh bên dưới để vào trang web đăng ký. 
+• Điền Email -> Chọn "Vietnamese" -> Bấm Đăng ký.
+• Vào hộp thư Email, copy đoạn mã API Key (VD: K8697...).
+• Quay lại app, bấm nút dán vào ô "Mã API Key OCR".
+• Bấm LƯU CẤU HÌNH.
+
+[b]2. TỪ KHÓA BẮT CUỐC[/b]
+• [b]Từ khóa Nhận:[/b] Nếu tin nhắn CÓ chứa từ này, app sẽ bắt. (VD: Nội bài, ghép, tiện chuyến).
+• [b]Từ khóa Loại trừ:[/b] Nếu tin nhắn CÓ chứa từ này, app BỎ QUA lập tức. (VD: full, đã đủ).
+• Viết cách nhau bằng dấu phẩy (,). 
+• Muốn app bắt MỌI TIN NHẮN (không cần từ khóa), hãy TẮT công tắc "Chỉ nhận tin chứa Từ Khóa".
+
+[b]3. TÍNH NĂNG AUTO (CHỐT TỰ ĐỘNG)[/b]
+• Nếu Bật: App thấy cuốc là tự động gửi tin nhắn chốt.
+• Nội dung chốt: Điền ở ô "Nội dung trả lời tự động".
+• Khoảng cách Delay: Tránh Zalo khóa mõm nếu chốt liên tục. Mặc định 30 giây.
+
+[b]4. HOẠT ĐỘNG NGẦM[/b]
+• Luôn bật "CHỐNG NGỦ ĐÔNG" để app không bị tắt khi vuốt ra ngoài lướt web, tiktok.
+"""
+        # Hộp chứa chữ tự động co giãn chiều cao
+        lbl = Label(
+            text=guide_text, markup=True, color=(0.15, 0.15, 0.15, 1), 
+            font_size='14sp', size_hint_y=None, halign='left', valign='top'
+        )
+        lbl.bind(
+            width=lambda *x: lbl.setter('text_size')(lbl, (lbl.width, None)),
+            texture_size=lambda *x: lbl.setter('height')(lbl, lbl.texture_size[1])
+        )
+        main_layout.add_widget(lbl)
+
+        # Nút đăng ký web
+        btn_ocr = Button(
+            text="🌐 MỞ TRANG ĐĂNG KÝ MÃ OCR", size_hint_y=None, height=dp(45), 
+            background_normal='', background_color=(0.1, 0.6, 0.2, 1), bold=True
+        )
+        import webbrowser
+        btn_ocr.bind(on_release=lambda x: webbrowser.open("https://ocr.space/ocrapi/freekey"))
+        main_layout.add_widget(btn_ocr)
+
+        # Nút đóng
+        btn_close = Button(
+            text="ĐÓNG HƯỚNG DẪN", size_hint_y=None, height=dp(45), 
+            background_normal='', background_color=(0.8, 0.2, 0.2, 1), bold=True
+        )
+        btn_close.bind(on_release=self.dismiss)
+        main_layout.add_widget(btn_close)
+
+        root_scroll.add_widget(main_layout)
+        self.content = root_scroll
 if __name__ == '__main__':
     ZAutoProApp().run()
