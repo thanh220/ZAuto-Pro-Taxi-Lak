@@ -1517,8 +1517,15 @@ class ZAutoProApp(MDApp):
                             self.save_config_silent()
                             
                             # Kivy bắt buộc phải update UI trên luồng chính thông qua Clock
-                            Clock.schedule_once(lambda dt: self.update_profile_ui(), 0)
-                            Clock.schedule_once(lambda dt: self.set_webview_visible(False), 0)
+                            def _update_ui_after_sync(dt):
+                                self.update_profile_ui()
+                                self.set_webview_visible(False)
+                                # ✅ Đổi nút thành HUỶ màu đỏ ngay lập tức để user biết
+                                try:
+                                    self.root.ids.btn_zalo_action.text = "HUỶ LIÊN KẾT ZALO"
+                                    self.root.ids.btn_zalo_action.md_bg_color = (0.8, 0.2, 0.2, 1)
+                                except: pass
+                            Clock.schedule_once(_update_ui_after_sync, 0)
                         else:
                             self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
                     except Exception as e:
@@ -1687,7 +1694,7 @@ class ZAutoProApp(MDApp):
                             self.msg_queue.put_nowait((
                                 'WEB_NEW_MSG',
                                 {
-                                    'group': group_name, # ✅ Truyền đúng Tên Nhóm để check Filter
+                                    'group': group_name,
                                     'msg': full_msg,
                                     'msg_id': msg_id,
                                     'conversation_id': group_id,
@@ -1706,16 +1713,18 @@ class ZAutoProApp(MDApp):
                             is_group = data.get('is_group', True)
                             voice_text = f"{sender}: [tin nhắn thoại]%%%-1" if sender else "[tin nhắn thoại]%%%-1"
                             self.msg_queue.put_nowait((
-                            'WEB_NEW_MSG',
-                            {
-                                'group': group_name,
-                                'msg': full_msg,
-                                'msg_id': msg_id,
-                                'conversation_id': group_name, # Gán ID hoặc tên đều được để radar xử lý
-                                'is_group': is_group,
-                                'raw_data': raw_data 
-                            }
-                        ))
+                                'WEB_NEW_MSG',
+                                {
+                                    'group': group_name,
+                                    'msg': voice_text,
+                                    'msg_id': msg_id,
+                                    'conversation_id': group_id,
+                                    'is_group': is_group,
+                                    'voice_url': voice_url,
+                                    'raw_data': data.get('raw_data', {})
+                                }
+                            ))
+
                     # ✅ XỬ LÝ TIN NHẮN ẢNH (BẮT CUỐC QUA HÌNH CHỤP)
                     elif action == 'WEB_NEW_PHOTO':
                         if getattr(self, 'is_radar_running', False):
@@ -1730,7 +1739,7 @@ class ZAutoProApp(MDApp):
                             if photo_url:
                                 threading.Thread(
                                     target=self._process_image_ocr_thread,
-                                    args=(photo_url, group_name, sender, msg_id, is_group, raw_data), # ✅ Pass group_name
+                                    args=(photo_url, group_id, group_name, sender, msg_id, is_group, raw_data), # ✅ Pass CẢ ID LẪN TÊN
                                     daemon=True
                                 ).start()
         except requests.exceptions.RequestException:
@@ -2458,7 +2467,7 @@ class ZAutoProApp(MDApp):
             UrlRequest(no_cache_url, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
         except Exception as e:
             logger.error(f"Lỗi gọi UrlRequest: {e}")
-    def _process_image_ocr_thread(self, photo_url, group_name, sender, msg_id, is_group, raw_data):
+    def _process_image_ocr_thread(self, photo_url, group_id, group_name, sender, msg_id, is_group, raw_data):
         """Luồng ngầm: Nhờ máy chủ OCR.space đọc chữ trong ảnh"""
         import requests
         try:
@@ -2484,17 +2493,17 @@ class ZAutoProApp(MDApp):
                         self.msg_queue.put_nowait((
                             'WEB_NEW_MSG',
                             {
-                                'group': group_id,
+                                'group': group_name,          # ✅ Tên nhóm để kiểm tra Filter và hiện UI
                                 'msg': full_msg,
                                 'msg_id': msg_id,
-                                'conversation_id': group_id,
+                                'conversation_id': group_id,  # ✅ Bắt buộc giữ ID gốc để API gửi tin chốt
                                 'is_group': is_group,
-                                'raw_data': raw_data # Gửi kèm raw_data để lỡ chốt cuốc thì Quote đè đúng lên bức ảnh đó
+                                'raw_data': raw_data
                             }
                         ))
                         logger.info(f"📷 Đã dịch OCR thành công: {text_found[:50]}...")
         except Exception as e:
-            logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")     
+            logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")    
 class GuidePopup(Popup):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
