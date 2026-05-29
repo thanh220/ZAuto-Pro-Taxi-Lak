@@ -7,7 +7,7 @@ package.domain = org.zauto
 
 source.dir = .
 
-source.include_exts = py,png,jpg,jpeg,kv,json,xml,java,db,ttf,otf,txt,html,css,js
+source.include_exts = py,png,jpg,kv,atlas,js,json,node_arm64,node_armv7,so
 source.include_patterns = nodejs_backend/bin/*,nodejs_backend/node_modules/*,nodejs_backend/node_modules/*/*,nodejs_backend/node_modules/*/*/*,nodejs_backend/node_modules/*/*/*/*,nodejs_backend/node_modules/*/*/*/*/*
 
 version = 7.0
