@@ -13,60 +13,72 @@ const require = createRequire(import.meta.url);
 function applyCookiePatch(CookieJarClass) {
     if (!CookieJarClass || CookieJarClass.__patched) return;
 
+    // Chuẩn hóa mọi subdomain Zalo về chat.zalo.me để đọc cookie
+    function normalizeZaloUrl(urlStr) {
+        if (urlStr.includes('id.zalo.me')) return urlStr.replace('id.zalo.me', 'chat.zalo.me');
+        if (urlStr.includes('jr.chat.zalo.me')) return urlStr.replace('jr.chat.zalo.me', 'chat.zalo.me');
+        if (urlStr.includes('stc-zlogin.zdn.vn')) return 'https://chat.zalo.me/';
+        return urlStr;
+    }
+
     // ── PATCH setCookie ──────────────────────────────────────
-    const originalSetCookie = CookieJarClass.prototype.setCookie;
+    const _origSetCookie = CookieJarClass.prototype.setCookie;
     CookieJarClass.prototype.setCookie = function(cookie, url, options, cb) {
         if (typeof options === 'function') { cb = options; options = {}; }
         options = options || {};
         options.ignoreError = true;
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
-        if (urlStr.includes('id.zalo.me')) url = urlStr.replace('id.zalo.me', 'chat.zalo.me');
-        return originalSetCookie.call(this, cookie, url, options, cb);
+        if (urlStr.includes('id.zalo.me')) {
+            try { _origSetCookie.call(this, cookie, urlStr.replace('id.zalo.me', 'chat.zalo.me'), options, ()=>{}); } catch(e) {}
+        } else if (urlStr.includes('chat.zalo.me') && !urlStr.includes('jr.')) {
+            try { _origSetCookie.call(this, cookie, urlStr.replace('chat.zalo.me', 'id.zalo.me'), options, ()=>{}); } catch(e) {}
+        }
+        return _origSetCookie.call(this, cookie, url, options, cb);
     };
 
-    const originalSetCookieSync = CookieJarClass.prototype.setCookieSync;
+    const _origSetCookieSync = CookieJarClass.prototype.setCookieSync;
     CookieJarClass.prototype.setCookieSync = function(cookie, url, options) {
         options = options || {};
         options.ignoreError = true;
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
-        if (urlStr.includes('id.zalo.me')) url = urlStr.replace('id.zalo.me', 'chat.zalo.me');
-        return originalSetCookieSync.call(this, cookie, url, options);
+        if (urlStr.includes('id.zalo.me')) {
+            try { _origSetCookieSync.call(this, cookie, urlStr.replace('id.zalo.me', 'chat.zalo.me'), options); } catch(e) {}
+        } else if (urlStr.includes('chat.zalo.me') && !urlStr.includes('jr.')) {
+            try { _origSetCookieSync.call(this, cookie, urlStr.replace('chat.zalo.me', 'id.zalo.me'), options); } catch(e) {}
+        }
+        return _origSetCookieSync.call(this, cookie, url, options);
     };
 
-    // ── PATCH getCookies (MỚI - QUAN TRỌNG) ─────────────────
-    const originalGetCookies = CookieJarClass.prototype.getCookies;
+    // ── PATCH getCookies ─────────────────────────────────────
+    const _origGetCookies = CookieJarClass.prototype.getCookies;
     CookieJarClass.prototype.getCookies = function(url, options, cb) {
         if (typeof options === 'function') { cb = options; options = {}; }
         options = options || {};
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
-        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
-        return originalGetCookies.call(this, altUrl, options, cb);
+        return _origGetCookies.call(this, normalizeZaloUrl(urlStr), options, cb);
     };
 
-    const originalGetCookiesSync = CookieJarClass.prototype.getCookiesSync;
+    const _origGetCookiesSync = CookieJarClass.prototype.getCookiesSync;
     CookieJarClass.prototype.getCookiesSync = function(url, options) {
         options = options || {};
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
-        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
-        return originalGetCookiesSync.call(this, altUrl, options);
+        return _origGetCookiesSync.call(this, normalizeZaloUrl(urlStr), options);
     };
 
-    // ── PATCH getCookieString (MỚI) ──────────────────────────
-    const originalGetCookieString = CookieJarClass.prototype.getCookieString;
+    // ── PATCH getCookieString ────────────────────────────────
+    const _origGetCookieString = CookieJarClass.prototype.getCookieString;
     CookieJarClass.prototype.getCookieString = function(url, options, cb) {
         if (typeof options === 'function') { cb = options; options = {}; }
         options = options || {};
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
-        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
-        return originalGetCookieString.call(this, altUrl, options, cb);
+        return _origGetCookieString.call(this, normalizeZaloUrl(urlStr), options, cb);
     };
 
-    const originalGetCookieStringSync = CookieJarClass.prototype.getCookieStringSync;
+    const _origGetCookieStringSync = CookieJarClass.prototype.getCookieStringSync;
     CookieJarClass.prototype.getCookieStringSync = function(url, options) {
         options = options || {};
         let urlStr = typeof url === 'string' ? url : (url?.href || String(url));
-        const altUrl = urlStr.includes('id.zalo.me') ? urlStr.replace('id.zalo.me', 'chat.zalo.me') : urlStr;
-        return originalGetCookieStringSync.call(this, altUrl, options);
+        return _origGetCookieStringSync.call(this, normalizeZaloUrl(urlStr), options);
     };
 
     CookieJarClass.__patched = true;
@@ -76,6 +88,40 @@ function applyCookiePatch(CookieJarClass) {
 // Gọi hàm vá lỗi
 try { applyCookiePatch(require('zalo-api-final/node_modules/tough-cookie').CookieJar); } catch (e) {}
 try { applyCookiePatch(require('tough-cookie').CookieJar); } catch (e) {}
+
+// ── PATCH NODE HTTPS: Tự gắn cookie vào header khi gọi jr.chat.zalo.me ──
+import https from 'https';
+const _origHttpsRequest = https.request.bind(https);
+https.request = function(urlOrOptions, optionsOrCb, cb) {
+    try {
+        let opts = typeof urlOrOptions === 'string' || urlOrOptions instanceof URL
+            ? (typeof optionsOrCb === 'object' ? optionsOrCb : {})
+            : urlOrOptions;
+        let hostname = opts.hostname || opts.host || '';
+        if (typeof urlOrOptions === 'string') {
+            try { hostname = new URL(urlOrOptions).hostname; } catch(e) {}
+        } else if (urlOrOptions instanceof URL) {
+            hostname = urlOrOptions.hostname;
+        }
+        if (hostname.includes('jr.chat.zalo.me') || hostname.includes('jr.zalo.me')) {
+            // Đọc cookie từ chat.zalo.me trong jar của zalo context
+            // Dùng global _zaloCookieJar được set khi login
+            if (global._zaloCookieJar) {
+                try {
+                    const cookies = global._zaloCookieJar.getCookiesSync('https://chat.zalo.me/');
+                    const cookieStr = cookies.map(c => c.cookieString()).join('; ');
+                    if (cookieStr) {
+                        if (typeof opts === 'object') {
+                            opts.headers = opts.headers || {};
+                            opts.headers['cookie'] = cookieStr;
+                        }
+                    }
+                } catch(e) {}
+            }
+        }
+    } catch(e) {}
+    return _origHttpsRequest(urlOrOptions, optionsOrCb, cb);
+};
 
 // ─────────────────────────────────────────────
 // KHỞI TẠO BIẾN VÀ EXPRESS (ĐOẠN BẠN BỊ XÓA NHẦM)
@@ -89,6 +135,7 @@ const zalo = new Zalo({ selfListen: false, checkUpdate: false, logging: true });
 let api = null;
 let eventQueue = [];
 let currentUserInfo = { name: 'ZAuto (Đã kết nối)', avatar: 'profile.jpg' };
+let groupCacheMap = {}; // ✅ BỔ SUNG: Biến dịch ID số thành Tên nhóm
 
 function saveSession() {
     try {
@@ -115,20 +162,23 @@ function startListener() {
         const content = msg.data.content;
         const msgType = msg.data.msgType;   
         const isGroup = msg.type === 1;     
+        
+        // ✅ BẢN VÁ LỖI 3: Dịch ID số thành Tên nhóm
+        const realGroupName = groupCacheMap[msg.threadId] || msg.threadId;
 
         if (typeof content === 'string' && content.trim() !== '') {
-            eventQueue.push({ action: 'WEB_NEW_MSG', data: { msg_type: 'text', group_id: msg.threadId, group_name: msg.threadId, sender_id: msg.data.uidFrom, sender_name: msg.data.dName || '', text: content, msg_id: msg.data.msgId, is_group: isGroup, raw_msg_type: msgType }});
+            eventQueue.push({ action: 'WEB_NEW_MSG', data: { msg_type: 'text', group_id: msg.threadId, group_name: realGroupName, sender_id: msg.data.uidFrom, sender_name: msg.data.dName || '', text: content, msg_id: msg.data.msgId, is_group: isGroup, raw_msg_type: msgType }});
         }
         if (msgType === 'chat.voice' && typeof content === 'object' && content !== null) {
             const voiceUrl = content.href || content.fileUrl || '';
             if (voiceUrl) {
-                eventQueue.push({ action: 'WEB_NEW_VOICE', data: { msg_type: 'voice', group_id: msg.threadId, group_name: msg.threadId, sender_id: msg.data.uidFrom, sender_name: msg.data.dName || '', voice_url: voiceUrl, msg_id: msg.data.msgId, is_group: isGroup, raw_data: { content: msg.data.content, msgType: msg.data.msgType, msgId: msg.data.msgId, cliMsgId: msg.data.cliMsgId, ts: msg.data.ts, ttl: msg.data.ttl, uidFrom: msg.data.uidFrom, propertyExt: msg.data.propertyExt } }});
+                eventQueue.push({ action: 'WEB_NEW_VOICE', data: { msg_type: 'voice', group_id: msg.threadId, group_name: realGroupName, sender_id: msg.data.uidFrom, sender_name: msg.data.dName || '', voice_url: voiceUrl, msg_id: msg.data.msgId, is_group: isGroup, raw_data: { content: msg.data.content, msgType: msg.data.msgType, msgId: msg.data.msgId, cliMsgId: msg.data.cliMsgId, ts: msg.data.ts, ttl: msg.data.ttl, uidFrom: msg.data.uidFrom, propertyExt: msg.data.propertyExt } }});
             }
         }
         if (msgType === 'chat.photo' && typeof content === 'object' && content !== null) {
             const photoUrl = content.href || content.normalUrl || content.hdUrl || '';
             if (photoUrl) {
-                eventQueue.push({ action: 'WEB_NEW_PHOTO', data: { msg_type: 'photo', group_id: msg.threadId, group_name: msg.threadId, sender_id: msg.data.uidFrom, sender_name: msg.data.dName || '', photo_url: photoUrl, msg_id: msg.data.msgId, is_group: isGroup, raw_data: { content: msg.data.content, msgType: msg.data.msgType, msgId: msg.data.msgId, cliMsgId: msg.data.cliMsgId, ts: msg.data.ts, ttl: msg.data.ttl, uidFrom: msg.data.uidFrom, propertyExt: msg.data.propertyExt } }});
+                eventQueue.push({ action: 'WEB_NEW_PHOTO', data: { msg_type: 'photo', group_id: msg.threadId, group_name: realGroupName, sender_id: msg.data.uidFrom, sender_name: msg.data.dName || '', photo_url: photoUrl, msg_id: msg.data.msgId, is_group: isGroup, raw_data: { content: msg.data.content, msgType: msg.data.msgType, msgId: msg.data.msgId, cliMsgId: msg.data.cliMsgId, ts: msg.data.ts, ttl: msg.data.ttl, uidFrom: msg.data.uidFrom, propertyExt: msg.data.propertyExt } }});
             }
         }
     });
@@ -204,7 +254,7 @@ app.get('/api/events', (req, res) => { res.json({ events: eventQueue }); eventQu
 // CỔNG MỚI: NHẬN DỮ LIỆU TƯƠI TỪ TRÌNH DUYỆT ĐIỆN THOẠI (WEBVIEW ANDROID)
 app.post('/api/cookie_login', async (req, res) => {
     try {
-        const { raw_cookie, imei, user_agent } = req.body; // Nhận cả 3 thông số
+        const { raw_cookie, imei, user_agent } = req.body;
         if (!raw_cookie) return res.status(400).json({error: 'Thiếu cookie'});
         
         if (fs.existsSync('cookie.json')) fs.unlinkSync('cookie.json');
@@ -212,22 +262,33 @@ app.post('/api/cookie_login', async (req, res) => {
 
         console.log('🔄 Đang chuyển đổi dữ liệu từ WebView...');
         const tempZalo = new Zalo({ selfListen: false, checkUpdate: false, logging: true });
-        
-        // Đăng nhập BẤT TỬ bằng Cookie + IMEI + UserAgent
-        api = await tempZalo.login({ 
-            cookie: raw_cookie,
-            imei: imei || undefined,
-            userAgent: user_agent || undefined
-        });
+        api = await tempZalo.login({ cookie: raw_cookie, imei: imei || undefined, userAgent: user_agent || undefined });
 
-        const ctx = api.getContext();
-        const sessionData = {
-            cookie: ctx.cookie.toJSON().cookies,
-            imei: ctx.imei,
-            userAgent: ctx.userAgent,
-            userInfo: { name: 'ZAuto (Từ WebView)', avatar: 'profile.jpg' }
-        };
+        currentUserInfo = { name: 'ZAuto (Từ WebView)', avatar: 'profile.jpg' };
+        const sessionData = { cookie: api.getContext().cookie.toJSON().cookies, imei: api.getContext().imei, userAgent: api.getContext().userAgent, userInfo: currentUserInfo };
         fs.writeFileSync('cookie.json', JSON.stringify(sessionData, null, 2));
+
+        // ✅ Đẩy sự kiện LOGIN thành công cho Kivy
+        eventQueue.push({ action: 'LOGIN_SUCCESS', data: currentUserInfo });
+
+        // ✅ Lấy danh sách nhóm và tạo bộ từ điển dịch Tên
+        const groups = await api.getAllGroups();
+        if (groups && groups.gridVerMap) {
+            const groupIds = Object.keys(groups.gridVerMap);
+            let groupDetails = [];
+            for (const gid of groupIds) {
+                try {
+                    const info = await api.getGroupInfo(gid);
+                    let gName = info.groupName || info.grpName || info.name || `Nhóm ${gid}`;
+                    groupCacheMap[gid] = gName; // Lưu vào từ điển
+                    groupDetails.push({ id: gid, name: gName, avatar: info.avatar || info.avt || 'profile.jpg' });
+                } catch (e) {
+                    groupCacheMap[gid] = gid;
+                    groupDetails.push({ name: gid, avatar: 'profile.jpg' });
+                }
+            }
+            eventQueue.push({ action: 'GROUPS_DATA', data: { groups: groupDetails } });
+        }
         
         startListener();
         res.json({status: 'success'});
