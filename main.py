@@ -1813,12 +1813,15 @@ class ZAutoProApp(MDApp):
         threading.Thread(target=_load_qr_thread, daemon=True).start()
     def _nodejs_poll_worker(self):
         """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
+        # Chờ Node.js khởi động xong trước khi bắt đầu poll
+        # (Node.js cần ~5-10 giây để load xong trên Android)
+        time.sleep(10)
         while getattr(self, 'app_running', True):
             try:
                 self._poll_nodejs_queue(None)
             except Exception:
                 pass
-            time.sleep(0.5) # Quét Node.js 0.5s/lần
+            time.sleep(0.5)
 
     def add_ride_card(self, group, msg, msg_id="", conversation_id="", cache_key="", raw_msg=""):
         try:
