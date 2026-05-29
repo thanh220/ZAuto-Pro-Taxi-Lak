@@ -914,70 +914,59 @@ class ZAutoProApp(MDApp):
         self.check_license_at_startup()
         self.check_for_update()
 
-        if platform == 'android':  # Biến platform này lấy từ kivy.utils
-            import platform as std_platform  # Import thêm platform chuẩn của Python để đọc CPU
+        if platform == 'android':
             import subprocess
+            from jnius import autoclass
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
 
             # ==========================================
-            # 1. KÍCH HOẠT NODE.JS BACKEND (TỰ ĐỘNG NHẬN DIỆN CPU)
+            # 1. KÍCH HOẠT NODE.JS BACKEND (BÀI TẨY libnode.so)
             # ==========================================
             try:
-                # Lấy thư mục gốc chứa file app của Kivy trên điện thoại
-                app_dir = os.path.join(
-                    os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'),
-                    'app'
-                )
+                # Lấy thư mục đặc quyền của Android (nơi chứa libnode.so sau khi cài APK)
+                app_info = PythonActivity.mActivity.getApplicationInfo()
+                native_lib_dir = app_info.nativeLibraryDir
                 
-                # Phát hiện kiến trúc CPU của điện thoại
-                cpu_arch = std_platform.machine().lower()
+                # Đường dẫn Node.js nằm trong thư viện hệ thống
+                node_bin_path = os.path.join(native_lib_dir, 'libnode.so')
                 
-                if 'aarch64' in cpu_arch or 'arm64' in cpu_arch:
-                    node_file = 'node_arm64' # <-- Đã loại bỏ .bin
-                    logger.info("📱 Phát hiện CPU 64-bit -> Dùng Node.js ARM64")
-                else:
-                    node_file = 'node_armv7' # <-- Đã loại bỏ .bin
-                    logger.info("📱 Phát hiện CPU 32-bit -> Dùng Node.js ARMv7")
-                    
-                node_bin_path = os.path.join(app_dir, 'nodejs_backend', 'bin', node_file)
-                if os.path.exists(node_bin_path):
-                    logger.info(f"✅ Đã tìm thấy file Node tại: {node_bin_path}")
-                    # Dùng thư viện chuẩn của Python để ép quyền 777 cho Node.js (Chống lỗi Permission Denied)
-                    import stat
-                    try:
-                        os.chmod(node_bin_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-                    except Exception as ce:
-                        logger.error(f"Lỗi cấp quyền Node: {ce}")
-                else:
-                    logger.error(f"❌ KHÔNG TÌM THẤY FILE NODE TẠI: {node_bin_path}")
+                # Đường dẫn server.js vẫn lấy từ thư mục app (vẫn giữ nguyên logic cũ)
+                app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
                 server_js_path = os.path.join(app_dir, 'nodejs_backend', 'server.js')
                 backend_dir = os.path.join(app_dir, 'nodejs_backend')
                 
-                # Cấp quyền thực thi cho file node
-                os.system(f"chmod +x {node_bin_path}")
-                
-                self.node_process = subprocess.Popen(
-                    [node_bin_path, server_js_path],
-                    cwd=backend_dir,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                logger.info(f"✅ Đã khởi chạy Node.js Backend ({node_file}) thành công!")
+                if os.path.exists(node_bin_path):
+                    logger.info(f"✅ Đã tìm thấy Node.js (libnode.so) tại: {node_bin_path}")
+                    
+                    # Cấp quyền thực thi cho file trong thư viện (phòng hờ)
+                    import stat
+                    try:
+                        os.chmod(node_bin_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                    except: pass
+                    
+                    self.node_process = subprocess.Popen(
+                        [node_bin_path, server_js_path],
+                        cwd=backend_dir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    logger.info(f"✅ Đã khởi chạy Node.js Backend thành công!")
 
-                # ✅ THÊM: Đọc stderr để biết Node.js lỗi gì
-                def _read_node_stderr():
-                    for line in self.node_process.stderr:
-                        try:
-                            logger.error(f"[NODE ERR] {line.decode('utf-8', errors='ignore').strip()}")
-                        except: pass
+                    # Luồng đọc log
+                    def _read_node_stderr():
+                        for line in self.node_process.stderr:
+                            try: logger.error(f"[NODE ERR] {line.decode('utf-8', errors='ignore').strip()}")
+                            except: pass
 
-                def _read_node_stdout():
-                    for line in self.node_process.stdout:
-                        try:
-                            logger.info(f"[NODE] {line.decode('utf-8', errors='ignore').strip()}")
-                        except: pass
+                    def _read_node_stdout():
+                        for line in self.node_process.stdout:
+                            try: logger.info(f"[NODE] {line.decode('utf-8', errors='ignore').strip()}")
+                            except: pass
 
-                threading.Thread(target=_read_node_stderr, daemon=True).start()
-                threading.Thread(target=_read_node_stdout, daemon=True).start()
+                    threading.Thread(target=_read_node_stderr, daemon=True).start()
+                    threading.Thread(target=_read_node_stdout, daemon=True).start()
+                else:
+                    logger.error(f"❌ KHÔNG TÌM THẤY FILE LIBNODE.SO TẠI: {node_bin_path}")
             except Exception as e:
                 logger.error(f"❌ Lỗi khởi chạy Node.js: {e}")
 
@@ -1010,29 +999,24 @@ class ZAutoProApp(MDApp):
                 logger.error(f"Lỗi on_start cấu hình Android: {traceback.format_exc()}")
 
         # ==========================================
-        # 3. KHỞI TẠO KIẾN TRÚC REALTIME VÀ WORKER (CHẠY ĐƯỢC CẢ TRÊN PC)
+        # 3. KHỞI TẠO KIẾN TRÚC REALTIME VÀ WORKER
         # ==========================================
         self.processed_msg_hashes = LRUCache(maxsize=1000)
         self.global_last_reply = 0
         self.last_reply_time = LRUCache(maxsize=200)
 
-        # Luồng 1: Xử lý nội dung tin nhắn
         self.msg_worker_thread = threading.Thread(target=self._message_worker, daemon=True)
         self.msg_worker_thread.start()
 
-        # Luồng 2: Gọi lệnh gửi tin nhắn chốt cuốc
         self.reply_worker_thread = threading.Thread(target=self._reply_worker_loop, daemon=True)
         self.reply_worker_thread.start()
 
-        # Luồng 3: Đọc giọng nói (TTS)
         self.audio_worker_thread = threading.Thread(target=self._audio_worker_loop, daemon=True)
         self.audio_worker_thread.start()
 
-        # Luồng 4: Giao tiếp với API Node.js ngầm 24/24
         self.poll_worker_thread = threading.Thread(target=self._nodejs_poll_worker, daemon=True)
         self.poll_worker_thread.start()
 
-        # Khởi chạy các bộ đếm thời gian
         Clock.schedule_interval(self._system_watchdog, 180)
         Clock.schedule_interval(self._process_ui_queue, 0.1)
     def update_group_list_ui(self, groups):
@@ -2521,30 +2505,35 @@ class ZAutoProApp(MDApp):
         except Exception as e:
             logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")
     def show_system_debug(self):
-        """Hàm siêu âm toàn bộ hệ thống để tìm lỗi Node.js/APK"""
+        """Hàm siêu âm toàn bộ hệ thống để tìm lỗi Node.js/APK (V2 - libnode.so)"""
         import os
         import socket
         import platform as std_platform
+        from jnius import autoclass
         
-        log_text = "[b]TRẠNG THÁI HỆ THỐNG:[/b]\n\n"
+        # Lấy thông tin Activity để tìm thư viện
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        native_lib_dir = PythonActivity.mActivity.getApplicationInfo().nativeLibraryDir
+        
+        # Đường dẫn tới file libnode.so trong thư viện hệ thống
+        node_bin_path = os.path.join(native_lib_dir, 'libnode.so')
+        
+        # Đường dẫn server.js (vẫn lấy từ app dir)
+        app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
+        server_js = os.path.join(app_dir, 'nodejs_backend', 'server.js')
+        
+        log_text = "[b]TRẠNG THÁI HỆ THỐNG V2:[/b]\n\n"
         
         # 1. Thông tin thiết bị
         cpu_arch = std_platform.machine().lower()
         log_text += f"📱 CPU: {cpu_arch}\n\n"
         
-        # 2. Kiểm tra File Node.js
-        app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
-        node_arm64 = os.path.join(app_dir, 'nodejs_backend', 'bin', 'node_arm64')
-        node_armv7 = os.path.join(app_dir, 'nodejs_backend', 'bin', 'node_armv7')
-        server_js = os.path.join(app_dir, 'nodejs_backend', 'server.js')
-        
-        active_node = node_arm64 if 'aarch64' in cpu_arch or 'arm64' in cpu_arch else node_armv7
-        
-        if os.path.exists(active_node):
-            log_text += f"✅ File Node: TỒN TẠI\n"
-            log_text += f"   - Quyền thực thi (X_OK): {os.access(active_node, os.X_OK)}\n"
+        # 2. Kiểm tra File Node.js (libnode.so)
+        if os.path.exists(node_bin_path):
+            log_text += f"✅ File libnode.so: TỒN TẠI\n"
+            log_text += f"   - Quyền thực thi (X_OK): {os.access(node_bin_path, os.X_OK)}\n"
         else:
-            log_text += f"❌ File Node: KHÔNG TÌM THẤY (Build APK bị thiếu file)\n"
+            log_text += f"❌ File libnode.so: KHÔNG TÌM THẤY (Build APK thiếu file)\n"
             
         if os.path.exists(server_js):
             log_text += f"✅ File server.js: TỒN TẠI\n"
@@ -2563,10 +2552,12 @@ class ZAutoProApp(MDApp):
                 try:
                     err_out = self.node_process.stderr.read()
                     if err_out:
-                        log_text += f"   - Chi tiết: {err_out.decode('utf-8')[:100]}\n"
+                        log_text += f"   - Chi tiết: {err_out.decode('utf-8', errors='ignore')[:100]}\n"
                 except: pass
         else:
-            log_text += "❌ Tiến trình Node: CHƯA KHỞI ĐỘNG\n"
+            # Hiện lỗi khởi tạo nếu có lưu
+            err = getattr(self, 'node_start_error', 'Chưa khởi động')
+            log_text += f"❌ Tiến trình Node: {err}\n"
             
         # 4. Kiểm tra Cổng API 5000
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -2582,7 +2573,7 @@ class ZAutoProApp(MDApp):
         finally:
             sock.close()
             
-        # Hiển thị lên màn hình
+        # Hiển thị lên màn hình (Giữ nguyên giao diện Popup cũ)
         content = BoxLayout(orientation='vertical', padding="10dp")
         lbl = Label(text=log_text, markup=True, halign='left', valign='top', text_size=(Window.width * 0.8, None))
         lbl.bind(texture_size=lbl.setter('size'))
@@ -2594,9 +2585,9 @@ class ZAutoProApp(MDApp):
         content.add_widget(scroll)
         content.add_widget(btn)
         
-        popup = Popup(title="Báo cáo gỡ lỗi", content=content, size_hint=(0.9, 0.7), auto_dismiss=False)
+        popup = Popup(title="Báo cáo gỡ lỗi V2", content=content, size_hint=(0.9, 0.7), auto_dismiss=False)
         btn.bind(on_release=popup.dismiss)
-        popup.open()        
+        popup.open()  
 class GuidePopup(Popup):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
