@@ -347,6 +347,9 @@ MDScreen:
             name: 'tab_zalo'
             text: 'Zalo'
             icon: 'account-circle'
+            on_tab_press: app._init_webview_android()
+            on_enter: app.set_webview_visible(True)
+            on_leave: app.set_webview_visible(False)
             
 
             MDBoxLayout:
@@ -982,13 +985,6 @@ class ZAutoProApp(MDApp):
                 if not self.wifilock.isHeld():
                     self.wifilock.acquire()
 
-                # KHỞI TẠO WEBVIEW CHÌM (Dùng để khách hàng đăng nhập Zalo)
-                try:
-                    ZWebManager = autoclass('org.zauto.ZaloWebManager')
-                    ZWebManager.initWebView(PythonActivity.mActivity)
-                except Exception as e:
-                    logger.error(f"Lỗi gọi ZaloWebManager: {e}")
-
             except Exception as e:
                 logger.error(f"Lỗi on_start cấu hình Android: {traceback.format_exc()}")
 
@@ -1497,8 +1493,7 @@ class ZAutoProApp(MDApp):
                     self.save_config_silent()
                     self.update_profile_ui()
                     
-                    # Ẩn khung Web đi cho nhẹ màn hình
-                    ZWebManager.updateWebViewBounds(PythonActivity.mActivity, 0, 0, 1080, 2400, False)
+                    self.set_webview_visible(False)
                 else:
                     self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
             except Exception as e:
@@ -1721,6 +1716,13 @@ class ZAutoProApp(MDApp):
         self.root.ids.btn_zalo_action.md_bg_color = (0.8, 0.4, 0.1, 1)
         self.root.ids.bottom_nav.switch_tab('tab_zalo')
 
+        # ✅ ẨN WEBVIEW JAVA ĐI ĐỂ QR KIVY KHÔNG BỊ CHE
+        if platform == 'android':
+            try:
+                self.set_webview_visible(False)
+            except Exception as e:
+                logger.error(f"Lỗi ẩn WebView khi show QR: {e}")
+
         # ✅ TẢI ẢNH TRÊN LUỒNG RIÊNG, KHÔNG BLOCK KIVY UI
         def _load_qr_thread():
             try:
@@ -1737,10 +1739,10 @@ class ZAutoProApp(MDApp):
                     # ✅ Chỉ thao tác Widget trên luồng UI
                     def _update_ui(dt):
                         try:
-                            from kivy.uix.image import Image
-                            qr_widget = Image(texture=core_image.texture, size_hint=(1, 1))
+                            from kivy.uix.image import Image as KivyImage
                             container = self.root.ids.webview_container
                             container.clear_widgets()
+                            qr_widget = KivyImage(texture=core_image.texture, size_hint=(1, 1))
                             container.add_widget(qr_widget)
                         except Exception as e:
                             logger.error(f"Lỗi vẽ QR lên UI: {e}")
@@ -1749,7 +1751,6 @@ class ZAutoProApp(MDApp):
             except Exception as e:
                 logger.error(f"Lỗi tải ảnh QR: {e}")
 
-        # ✅ DÒNG NÀY PHẢI ĐƯỢC THỤT VÀO NGANG VỚI CHỮ "def _load_qr_thread():"
         threading.Thread(target=_load_qr_thread, daemon=True).start()
     def _nodejs_poll_worker(self):
         """Worker cào dữ liệu từ Node.js API ngầm 24/24"""
@@ -1949,6 +1950,72 @@ class ZAutoProApp(MDApp):
                 ids.btn_zalo_action.md_bg_color = (0.8, 0.2, 0.2, 1) if self.is_linked else (0.1, 0.5, 0.8, 1)
         except Exception as e:
             print(f"Lỗi UI Profile: {e}")
+    def _init_webview_android(self):
+        if self.webview_inited: return
+        if platform == 'android':
+            try:
+                activity = PythonActivity.mActivity
+                autoclass('org.zauto.ZaloWebManager').initWebView(activity)
+                self.webview_inited = True
+            except Exception:
+                print(traceback.format_exc())
+
+    def set_webview_visible(self, is_visible):
+        # --- THÊM 2 DÒNG NÀY ĐỂ BẢO VỆ GIAO DIỆN ---
+        # Nếu đã liên kết Node.js thành công -> Cấm hiện lại WebView để không đè UI
+        if is_visible and getattr(self, 'is_linked', False):
+            is_visible = False
+
+        self.webview_visible = is_visible
+        if is_visible:
+            self.update_profile_ui()
+            self.last_webview_bounds = None
+            if not getattr(self, '_webview_timer', None):
+                self._webview_timer = Clock.schedule_interval(self._sync_webview_pos, 0.2)
+            def _do_resume(dt):
+                if platform == 'android' and getattr(self, 'webview_inited', False):
+                    try:
+                        from jnius import autoclass
+                        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                        autoclass('org.zauto.ZaloWebManager').onResume(PythonActivity.mActivity)
+                    except Exception: pass
+            Clock.schedule_once(_do_resume, 0.5)
+        else:
+            if getattr(self, '_webview_timer', None):
+                self._webview_timer.cancel()
+                self._webview_timer = None
+            if platform == 'android' and self.webview_inited:
+                self._hide_webview_overlay()
+
+    @run_on_ui_thread
+    def _hide_webview_overlay(self):
+        try:
+            autoclass('org.zauto.ZaloWebManager').updateWebViewBounds(
+                PythonActivity.mActivity, 0, 0, 0, 0, False)
+        except Exception: pass
+
+    def _sync_webview_pos(self, dt):
+        if platform != 'android' or not getattr(self, 'webview_inited', False) or not getattr(self, 'webview_visible', False):
+            return
+        try:
+            container = self.root.ids.webview_container
+            if not container.get_root_window():
+                return
+            x, y = container.to_window(0, 0)
+            w, h = container.size
+            android_y = Window.height - (y + h)
+            new_bounds = (int(x), int(android_y), int(w), int(h))
+            if new_bounds == getattr(self, 'last_webview_bounds', None):
+                return
+            if int(w) <= 0 or int(h) <= 0:
+                return
+            self.last_webview_bounds = new_bounds
+            autoclass('org.zauto.ZaloWebManager').updateWebViewBounds(
+                PythonActivity.mActivity,
+                new_bounds[0], new_bounds[1], new_bounds[2], new_bounds[3], True
+            )
+        except Exception: pass        
+            
 
     def save_config(self):
         """BẮT BUỘC ĐỌC UI VÀO BIẾN TRƯỚC KHI XUỐNG DB"""
@@ -1980,42 +2047,7 @@ class ZAutoProApp(MDApp):
     def check_permissions_and_guide(self):
         self.safe_toast("Bản cập nhật mới dùng API ngầm, không cần cấp quyền Trợ Năng nữa!")
 
-    def sync_cookie_from_webview(self):
-        """Hút cookie từ Java WebView và gửi cho Node.js"""
-        if platform == 'android':
-            try:
-                from jnius import autoclass
-                import requests
-                
-                self.safe_toast("Đang đồng bộ dữ liệu Zalo...")
-                ZWebManager = autoclass('org.zauto.ZaloWebManager')
-                
-                # Gọi hàm Java để hút Cookie
-                raw_cookie = ZWebManager.extractZaloCookie()
-                
-                if not raw_cookie or "zpw_sek" not in raw_cookie:
-                    self.safe_toast("❌ Bạn chưa đăng nhập Zalo trên khung Web bên dưới!")
-                    return
-                    
-                # Gửi Cookie tươi xuống cho API Node.js
-                res = requests.post("http://127.0.0.1:5000/api/cookie_login", json={"raw_cookie": raw_cookie}, timeout=15)
-                
-                if res.status_code == 200:
-                    self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
-                    self.config_data['is_linked'] = True
-                    self.is_linked = True
-                    self.save_config_silent()
-                    self.update_profile_ui()
-                    
-                    # Ẩn khung Web đi cho nhẹ màn hình
-                    ZWebManager.updateWebViewBounds(PythonActivity.mActivity, 0, 0, 1080, 2400, False)
-                else:
-                    self.safe_toast("❌ Lỗi đồng bộ. Hãy thử lại!")
-            except Exception as e:
-                logger.error(f"Lỗi sync cookie: {e}")
-                self.safe_toast("❌ Lỗi kết nối đến Server ngầm.")
-        else:
-            self.safe_toast("Tính năng này chỉ chạy trên điện thoại Android.")
+    
 
     def show_update_popup(self, server_ver, update_note, apk_url):
         """Hiện popup cập nhật - responsive theo màn hình, đồng bộ style app"""
@@ -2220,11 +2252,12 @@ class ZAutoProApp(MDApp):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.app_running = True
-        self.is_radar_running = False  
-        self.enabled_groups = {}       
+        self.is_radar_running = False
+        self.enabled_groups = {}
         self.webview_inited = False
         self.webview_visible = False
-        self._webview_timer = None 
+        self._webview_timer = None
+        self.last_webview_bounds = None
         self.config_data = {}
         self.is_linked = False
         
@@ -2300,9 +2333,6 @@ class ZAutoProApp(MDApp):
         popup = GuidePopup()
         popup.open()
 
-    @run_on_ui_thread
-    def _hide_webview_overlay(self):
-        pass
     
     def request_ignore_battery(self):
         if platform == 'android':
