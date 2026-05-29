@@ -931,7 +931,12 @@ class ZAutoProApp(MDApp):
                 node_bin_path = os.path.join(app_dir, 'nodejs_backend', 'bin', node_file)
                 if os.path.exists(node_bin_path):
                     logger.info(f"✅ Đã tìm thấy file Node tại: {node_bin_path}")
-                    os.system(f"chmod +x {node_bin_path}") # Cấp quyền thực thi
+                    # Dùng thư viện chuẩn của Python để ép quyền 777 cho Node.js (Chống lỗi Permission Denied)
+                    import stat
+                    try:
+                        os.chmod(node_bin_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                    except Exception as ce:
+                        logger.error(f"Lỗi cấp quyền Node: {ce}")
                 else:
                     logger.error(f"❌ KHÔNG TÌM THẤY FILE NODE TẠI: {node_bin_path}")
                 server_js_path = os.path.join(app_dir, 'nodejs_backend', 'server.js')
@@ -1508,7 +1513,8 @@ class ZAutoProApp(MDApp):
                 # TẠO LUỒNG RIÊNG ĐỂ GỬI API - KHÔNG LÀM ĐƠ GIAO DIỆN
                 def _send_api_thread():
                     try:
-                        res = requests.post("http://127.0.0.1:5000/api/cookie_login", json=payload, timeout=15)
+                        # Tăng timeout lên 35 giây để Node.js có đủ thời gian mã hóa đăng nhập Zalo
+                        res = requests.post("http://127.0.0.1:5000/api/cookie_login", json=payload, timeout=35)
                         
                         if res.status_code == 200:
                             self.safe_toast("✅ Đồng bộ thành công! Sẵn sàng nhận cuốc.")
