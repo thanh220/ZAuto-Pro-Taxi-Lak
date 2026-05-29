@@ -1213,18 +1213,18 @@ class ZAutoProApp(MDApp):
             return data
 
     def _decrypt_secure_data(self, hex_data, key):
-    """Giải mã chuỗi dữ liệu phần cứng"""
-    try:
-        data = bytes.fromhex(hex_data).decode('utf-8')
-        key_hash = hashlib.sha256(key.encode()).hexdigest()
-        decrypted = []
-        for i in range(len(data)):
-            key_c = key_hash[i % len(key_hash)]
-            dec_c = chr(ord(data[i]) ^ ord(key_c))
-            decrypted.append(dec_c)
-        return "".join(decrypted)
-    except:
-        return ""  # ← FIX: trả về rỗng khi lỗi, không trả rác   
+        """Giải mã chuỗi dữ liệu phần cứng"""
+        try:
+            data = bytes.fromhex(hex_data).decode('utf-8')
+            key_hash = hashlib.sha256(key.encode()).hexdigest()
+            decrypted = []
+            for i in range(len(data)):
+                key_c = key_hash[i % len(key_hash)]
+                dec_c = chr(ord(data[i]) ^ ord(key_c))
+                decrypted.append(dec_c)
+            return "".join(decrypted)
+        except:
+            return ""  # ← FIX: thụt lề chuẩn, trả về rỗng khi lỗi  
 
     def apply_license_ui(self, expiry, is_trial=False):
         if expiry > 4000000000:
@@ -1678,6 +1678,7 @@ class ZAutoProApp(MDApp):
                     elif action == 'WEB_NEW_MSG':
                         if getattr(self, 'is_radar_running', False):
                             group_id = data.get('group_id', '')
+                            group_name = data.get('group_name', group_id) # ✅ Lấy TÊN NHÓM thật
                             sender = data.get('sender_name', '')
                             text = data.get('text', '')
                             msg_id = data.get('msg_id', '')
@@ -1686,7 +1687,7 @@ class ZAutoProApp(MDApp):
                             self.msg_queue.put_nowait((
                                 'WEB_NEW_MSG',
                                 {
-                                    'group': group_id,
+                                    'group': group_name, # ✅ Truyền đúng Tên Nhóm để check Filter
                                     'msg': full_msg,
                                     'msg_id': msg_id,
                                     'conversation_id': group_id,
@@ -1698,39 +1699,38 @@ class ZAutoProApp(MDApp):
                     elif action == 'WEB_NEW_VOICE':
                         if getattr(self, 'is_radar_running', False):
                             group_id = data.get('group_id', '')
+                            group_name = data.get('group_name', group_id) # ✅ Lấy TÊN NHÓM thật
                             sender = data.get('sender_name', '')
                             msg_id = data.get('msg_id', '')
                             voice_url = data.get('voice_url', '')
                             is_group = data.get('is_group', True)
                             voice_text = f"{sender}: [tin nhắn thoại]%%%-1" if sender else "[tin nhắn thoại]%%%-1"
                             self.msg_queue.put_nowait((
-                                'WEB_NEW_MSG',
-                                {
-                                    'group': group_id,
-                                    'msg': voice_text,
-                                    'msg_id': msg_id,
-                                    'conversation_id': group_id,
-                                    'is_group': is_group,
-                                    'voice_url': voice_url,
-                                    'raw_data': data.get('raw_data', {})
-                                }
-                            ))
+                            'WEB_NEW_MSG',
+                            {
+                                'group': group_name,
+                                'msg': full_msg,
+                                'msg_id': msg_id,
+                                'conversation_id': group_name, # Gán ID hoặc tên đều được để radar xử lý
+                                'is_group': is_group,
+                                'raw_data': raw_data 
+                            }
+                        ))
                     # ✅ XỬ LÝ TIN NHẮN ẢNH (BẮT CUỐC QUA HÌNH CHỤP)
                     elif action == 'WEB_NEW_PHOTO':
                         if getattr(self, 'is_radar_running', False):
                             group_id = data.get('group_id', '')
+                            group_name = data.get('group_name', group_id) # ✅ Lấy TÊN NHÓM thật
                             sender = data.get('sender_name', '')
                             photo_url = data.get('photo_url', '')
                             msg_id = data.get('msg_id', '')
                             is_group = data.get('is_group', True)
                             raw_data = data.get('raw_data', {})
                             
-                            # Nếu có link ảnh, ném nó sang một luồng riêng để dịch chữ (OCR)
-                            # Tránh làm đơ giao diện điện thoại trong lúc chờ dịch
                             if photo_url:
                                 threading.Thread(
                                     target=self._process_image_ocr_thread,
-                                    args=(photo_url, group_id, sender, msg_id, is_group, raw_data),
+                                    args=(photo_url, group_name, sender, msg_id, is_group, raw_data), # ✅ Pass group_name
                                     daemon=True
                                 ).start()
         except requests.exceptions.RequestException:
@@ -2458,7 +2458,7 @@ class ZAutoProApp(MDApp):
             UrlRequest(no_cache_url, on_success=on_success, on_error=on_error, on_failure=on_error, timeout=10)
         except Exception as e:
             logger.error(f"Lỗi gọi UrlRequest: {e}")
-    def _process_image_ocr_thread(self, photo_url, group_id, sender, msg_id, is_group, raw_data):
+    def _process_image_ocr_thread(self, photo_url, group_name, sender, msg_id, is_group, raw_data):
         """Luồng ngầm: Nhờ máy chủ OCR.space đọc chữ trong ảnh"""
         import requests
         try:
