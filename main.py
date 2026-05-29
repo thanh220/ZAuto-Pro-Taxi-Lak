@@ -701,6 +701,16 @@ MDScreen:
                                 background_color: 0.1, 0.6, 0.2, 1
                                 on_release: app.show_activation_popup_from_settings()
 
+                            Button:
+                                text: "🛠 KIỂM TRA LỖI HỆ THỐNG"
+                                size_hint_y: None
+                                height: "35dp"
+                                pos_hint: {"center_x": .5}
+                                bold: True
+                                background_normal: ''
+                                background_color: 0.4, 0.4, 0.4, 1
+                                on_release: app.show_system_debug()
+
                         MDBoxLayout:
                             size_hint_y: None
                             height: "20dp"
@@ -2509,7 +2519,84 @@ class ZAutoProApp(MDApp):
                         ))
                         logger.info(f"📷 Đã dịch OCR thành công: {text_found[:50]}...")
         except Exception as e:
-            logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")    
+            logger.error(f"❌ Lỗi khi đọc chữ từ ảnh OCR: {e}")
+    def show_system_debug(self):
+        """Hàm siêu âm toàn bộ hệ thống để tìm lỗi Node.js/APK"""
+        import os
+        import socket
+        import platform as std_platform
+        
+        log_text = "[b]TRẠNG THÁI HỆ THỐNG:[/b]\n\n"
+        
+        # 1. Thông tin thiết bị
+        cpu_arch = std_platform.machine().lower()
+        log_text += f"📱 CPU: {cpu_arch}\n\n"
+        
+        # 2. Kiểm tra File Node.js
+        app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
+        node_arm64 = os.path.join(app_dir, 'nodejs_backend', 'bin', 'node_arm64')
+        node_armv7 = os.path.join(app_dir, 'nodejs_backend', 'bin', 'node_armv7')
+        server_js = os.path.join(app_dir, 'nodejs_backend', 'server.js')
+        
+        active_node = node_arm64 if 'aarch64' in cpu_arch or 'arm64' in cpu_arch else node_armv7
+        
+        if os.path.exists(active_node):
+            log_text += f"✅ File Node: TỒN TẠI\n"
+            log_text += f"   - Quyền thực thi (X_OK): {os.access(active_node, os.X_OK)}\n"
+        else:
+            log_text += f"❌ File Node: KHÔNG TÌM THẤY (Build APK bị thiếu file)\n"
+            
+        if os.path.exists(server_js):
+            log_text += f"✅ File server.js: TỒN TẠI\n"
+        else:
+            log_text += f"❌ File server.js: KHÔNG TÌM THẤY\n"
+            
+        # 3. Kiểm tra Tiến trình Node
+        log_text += "\n"
+        if hasattr(self, 'node_process') and self.node_process:
+            status = self.node_process.poll()
+            if status is None:
+                log_text += "✅ Tiến trình Node: ĐANG CHẠY\n"
+            else:
+                log_text += f"❌ Tiến trình Node: ĐÃ CHẾT (Mã lỗi: {status})\n"
+                # Đọc thử lỗi cuối cùng nếu có
+                try:
+                    err_out = self.node_process.stderr.read()
+                    if err_out:
+                        log_text += f"   - Chi tiết: {err_out.decode('utf-8')[:100]}\n"
+                except: pass
+        else:
+            log_text += "❌ Tiến trình Node: CHƯA KHỞI ĐỘNG\n"
+            
+        # 4. Kiểm tra Cổng API 5000
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1.0)
+        try:
+            result = sock.connect_ex(('127.0.0.1', 5000))
+            if result == 0:
+                log_text += "✅ Cổng 5000: ĐÃ MỞ (Sẵn sàng API)\n"
+            else:
+                log_text += f"❌ Cổng 5000: BỊ ĐÓNG (Code: {result})\n"
+        except Exception as e:
+            log_text += f"❌ Lỗi quét cổng: {e}\n"
+        finally:
+            sock.close()
+            
+        # Hiển thị lên màn hình
+        content = BoxLayout(orientation='vertical', padding="10dp")
+        lbl = Label(text=log_text, markup=True, halign='left', valign='top', text_size=(Window.width * 0.8, None))
+        lbl.bind(texture_size=lbl.setter('size'))
+        scroll = ScrollView(size_hint=(1, 1))
+        scroll.add_widget(lbl)
+        
+        btn = Button(text="ĐÓNG", size_hint_y=None, height="45dp", background_color=(0.8, 0.2, 0.2, 1))
+        
+        content.add_widget(scroll)
+        content.add_widget(btn)
+        
+        popup = Popup(title="Báo cáo gỡ lỗi", content=content, size_hint=(0.9, 0.7), auto_dismiss=False)
+        btn.bind(on_release=popup.dismiss)
+        popup.open()        
 class GuidePopup(Popup):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
