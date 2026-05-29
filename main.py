@@ -1332,18 +1332,19 @@ class ZAutoProApp(MDApp):
 
                 if platform == 'android' and tts_text:
                     try:
-                        from plyer import tts
-                        tts.speak(tts_text)
+                        from jnius import autoclass as _ac
+                        _ac('org.zauto.ZaloWebManager').speak(tts_text)
                         logger.info(f"Đã đọc TTS: {tts_text}")
+                        time.sleep(3.0)  # Chờ TTS đọc xong ~3 giây
                     except Exception as e:
-                        logger.error(f"Lỗi TTS Plyer: {e}")
+                        logger.error(f"Lỗi TTS ZWM: {e}")
 
-                    # BƯỚC 3: Chờ đúng thời lượng tin thoại trước khi phát tin tiếp
-                    try:
-                        wait_time = max(int(duration) + 2.0, 7.0) if int(duration) > 0 else 7.0
-                    except:
-                        wait_time = 7.0
-                    time.sleep(wait_time)
+                # Chờ đúng thời lượng tin thoại trước khi phát tin tiếp
+                try:
+                    wait_time = max(int(duration) + 2.0, 7.0) if int(duration) > 0 else 7.0
+                except:
+                    wait_time = 7.0
+                time.sleep(wait_time)
 
                 self.audio_queue.task_done()
 
@@ -2000,7 +2001,7 @@ class ZAutoProApp(MDApp):
     def update_profile_ui(self):
         try:
             ids = self.root.ids
-            
+
             if 'zalo_name_view' in ids:
                 ids.zalo_name_view.text = self.config_data.get('zalo_name', "Đã kết nối") if self.is_linked else "Chưa kết nối Zalo"
 
@@ -2008,10 +2009,40 @@ class ZAutoProApp(MDApp):
                 ids.zalo_avatar_view.source = self.config_data.get('zalo_avatar', 'profile.jpg') if self.is_linked else 'profile.jpg'
 
             if 'btn_zalo_action' in ids:
-                ids.btn_zalo_action.text = "HUỶ LIÊN KẾT ZALO" if self.is_linked else "LIÊN KẾT ZALO NGAY"
-                ids.btn_zalo_action.md_bg_color = (0.8, 0.2, 0.2, 1) if self.is_linked else (0.1, 0.5, 0.8, 1)
+                btn = ids.btn_zalo_action
+                # Xóa binding cũ trước khi gắn mới tránh gọi 2 lần
+                try: btn.unbind_all(btn)
+                except: pass
+                if self.is_linked:
+                    btn.text = "HUỶ LIÊN KẾT ZALO"
+                    btn.md_bg_color = (0.8, 0.2, 0.2, 1)
+                    btn.bind(on_release=lambda x: self._do_unlink_zalo())
+                else:
+                    btn.text = "1. ĐỒNG BỘ ZALO"
+                    btn.md_bg_color = (0.1, 0.6, 0.2, 1)
+                    btn.bind(on_release=lambda x: self.sync_cookie_from_webview())
         except Exception as e:
             print(f"Lỗi UI Profile: {e}")
+
+    def _do_unlink_zalo(self):
+        """Huỷ liên kết Zalo — xóa cookie.json và reset trạng thái"""
+        try:
+            import requests
+            # Yêu cầu Node.js restart (xóa cookie.json phía server)
+            try:
+                requests.post("http://127.0.0.1:5000/api/restart", timeout=3)
+            except: pass
+            self.is_linked = False
+            self.config_data['is_linked'] = False
+            self.config_data['zalo_name'] = 'Chưa kết nối Zalo'
+            self.config_data['zalo_avatar'] = 'profile.jpg'
+            self.save_config_silent()
+            self.update_profile_ui()
+            # Hiện lại WebView để đăng nhập lại
+            self.set_webview_visible(True)
+            self.safe_toast("Đã huỷ liên kết. Vui lòng đăng nhập lại.")
+        except Exception as e:
+            logger.error(f"Lỗi huỷ liên kết: {e}")
     def _init_webview_android(self):
         if self.webview_inited: return
         if platform == 'android':
