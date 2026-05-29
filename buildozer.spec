@@ -41,6 +41,10 @@ android.ndk = 25b
 android.accept_sdk_license = True
 android.archs = arm64-v8a
 
+# Khai báo libnode.so cho từng loại chip
+android.add_libs_arm64_v8a = nodejs_backend/bin/arm64-v8a/libnode.so
+android.add_libs_armeabi_v7a = nodejs_backend/bin/armeabi-v7a/libnode.so
+
 # =====================================================
 # P4A
 # =====================================================
