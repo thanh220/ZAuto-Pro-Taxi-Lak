@@ -15,8 +15,8 @@ version = 7.0
 orientation = portrait
 fullscreen = 0
 
-icon.filename = profile.jpg
-presplash.filename = profile.jpg
+icon.filename = profile_icon.png
+presplash.filename = profile_icon.png
 presplash.color = #FFFFFF
 
 # =====================================================
