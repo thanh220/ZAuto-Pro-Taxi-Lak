@@ -91,6 +91,9 @@ jobs:
           if [ ! -f res/xml/file_paths.xml ] && [ -f file_paths.xml ]; then
             cp file_paths.xml res/xml/file_paths.xml
           fi
+          # ✅ Tạo PNG icon thật sự từ profile.jpg
+          sudo apt-get install -y imagemagick
+          convert profile.jpg profile_icon.png
 
       - name: Generate Keystore
         run: |
