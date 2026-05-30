@@ -920,55 +920,48 @@ class ZAutoProApp(MDApp):
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
 
             # ==========================================
-            # 1. KÍCH HOẠT NODE.JS BACKEND (BÀI TẨY libnode.so)
+            # 1. KÍCH HOẠT NODE.JS BACKEND (CHẠY THẲNG libnode.so)
             # ==========================================
             try:
-                import stat
                 app_info = PythonActivity.mActivity.getApplicationInfo()
                 native_lib_dir = app_info.nativeLibraryDir
-
-                # Đường dẫn libnode.so gốc trong nativeLibraryDir
-                node_src_path = os.path.join(native_lib_dir, 'libnode.so')
-
-                # Thư mục files/ của app — được phép exec trên mọi Android
                 files_dir = PythonActivity.mActivity.getFilesDir().getAbsolutePath()
-                node_exec_path = os.path.join(files_dir, 'node')
+
+                # ✅ CHẠY THẲNG libnode.so từ nativeLibraryDir — không copy, không chmod
+                node_bin_path = os.path.join(native_lib_dir, 'libnode.so')
 
                 # Đường dẫn server.js
-                app_dir = os.path.join(os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'), 'app')
+                app_dir = os.path.join(
+                    os.getenv('ANDROID_PRIVATE', '/data/data/org.zauto.zauto/files'),
+                    'app'
+                )
                 server_js_path = os.path.join(app_dir, 'nodejs_backend', 'server.js')
                 backend_dir = os.path.join(app_dir, 'nodejs_backend')
 
-                if not os.path.exists(node_src_path):
-                    self.node_start_error = f"Không tìm thấy libnode.so tại {node_src_path}"
+                if not os.path.exists(node_bin_path):
+                    self.node_start_error = f"Không tìm thấy libnode.so tại {node_bin_path}"
+                    logger.error(f"❌ {self.node_start_error}")
+                elif not os.path.exists(server_js_path):
+                    self.node_start_error = f"Không tìm thấy server.js tại {server_js_path}"
                     logger.error(f"❌ {self.node_start_error}")
                 else:
-                    # Copy libnode.so sang files/node nếu chưa có hoặc kích thước khác
-                    need_copy = True
-                    if os.path.exists(node_exec_path):
-                        if os.path.getsize(node_exec_path) == os.path.getsize(node_src_path):
-                            need_copy = False
-                    if need_copy:
-                        import shutil
-                        shutil.copy2(node_src_path, node_exec_path)
-                        logger.info(f"✅ Đã copy libnode.so → {node_exec_path}")
+                    logger.info(f"✅ libnode.so: {node_bin_path}")
+                    logger.info(f"✅ server.js: {server_js_path}")
 
-                    # Cấp quyền thực thi
-                    os.chmod(node_exec_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-
-                    # Thiết lập biến môi trường cho Node.js
+                    # Biến môi trường cho Node.js
                     node_env = os.environ.copy()
                     node_env['HOME'] = files_dir
                     node_env['NODE_PATH'] = os.path.join(backend_dir, 'node_modules')
 
+                    # ✅ CHẠY THẲNG — không copy, không chmod
                     self.node_process = subprocess.Popen(
-                        [node_exec_path, server_js_path],
+                        [node_bin_path, server_js_path],
                         cwd=backend_dir,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         env=node_env
                     )
-                    logger.info(f"✅ Đã khởi chạy Node.js từ files/node thành công! PID={self.node_process.pid}")
+                    logger.info(f"✅ Node.js khởi chạy thành công! PID={self.node_process.pid}")
 
                     # Luồng đọc log Node.js
                     def _read_node_stderr():
