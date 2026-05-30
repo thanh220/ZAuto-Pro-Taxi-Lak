@@ -8,8 +8,7 @@ package.domain = org.zauto
 source.dir = .
 
 source.include_exts = py,png,jpg,kv,atlas,js,json
-source.include_patterns = nodejs_backend/bin/*,nodejs_backend/node_modules/*,nodejs_backend/node_modules/*/*,nodejs_backend/node_modules/*/*/*,nodejs_backend/node_modules/*/*/*/*,nodejs_backend/node_modules/*/*/*/*/*
-
+source.include_patterns = nodejs_backend/node_modules/*,nodejs_backend/node_modules/*/*,nodejs_backend/node_modules/*/*/*,nodejs_backend/node_modules/*/*/*/*,nodejs_backend/node_modules/*/*/*/*/*
 version = 7.0
 
 orientation = portrait
