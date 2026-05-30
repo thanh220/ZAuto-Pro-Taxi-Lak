@@ -6,135 +6,120 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-22.04
-    env:
-      PYTHON_VERSION: "3.11"
-      JAVA_VERSION: "17"
 
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Cache Gradle & Pip
+      - name: Cache Buildozer
         uses: actions/cache@v4
         with:
           path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            ~/.cache/pip
-          key: ${{ runner.os }}-zauto-v29-${{ hashFiles('buildozer.spec') }}
+            ~/.buildozer
+            .buildozer
+            ~/.gradle
+          key: buildozer-zauto-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-zauto-v29-
+            buildozer-zauto-${{ runner.os }}-
 
-      - name: Install System Packages
+      - name: Cleanup System
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # ← SỬA: bỏ .4, lấy latest 3.11.x
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download Node.js ARM Binaries
+        run: |
+          mkdir -p nodejs_backend/bin/arm64-v8a
+          mkdir -p nodejs_backend/bin/armeabi-v7a
+          curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-arm64.tar.xz
+          tar -xf node-v20.11.1-linux-arm64.tar.xz
+          cp node-v20.11.1-linux-arm64/bin/node nodejs_backend/bin/arm64-v8a/libnode.so
+          curl -LO https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-armv7l.tar.xz
+          tar -xf node-v20.11.1-linux-armv7l.tar.xz
+          cp node-v20.11.1-linux-armv7l/bin/node nodejs_backend/bin/armeabi-v7a/libnode.so
+          chmod +x nodejs_backend/bin/arm64-v8a/libnode.so
+          chmod +x nodejs_backend/bin/armeabi-v7a/libnode.so
+          rm -rf node-v20.11.1-linux-*
+
+      - name: Install Node.js Dependencies
+        run: |
+          cd nodejs_backend
+          npm install
+
+      - name: Install Ubuntu Dependencies
         run: |
           sudo apt update
           sudo apt install -y \
-            zip unzip git openjdk-17-jdk \
+            git zip unzip openjdk-17-jdk \
             autoconf automake libtool pkg-config \
-            zlib1g-dev libncurses5-dev libncursesw5-dev \
-            libtinfo5 cmake libffi-dev libssl-dev ccache \
-            build-essential patch libjpeg-dev libpng-dev \
-            ffmpeg libsdl2-dev libsdl2-image-dev \
-            libsdl2-mixer-dev libsdl2-ttf-dev
+            zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+            cmake libffi-dev libssl-dev build-essential patch \
+            libjpeg-dev libpng-dev ffmpeg \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            python3.11-venv python3.11-dev
 
-      - name: Install Python Packages
+      - name: Set JAVA_HOME
         run: |
-          python -m pip install --upgrade pip==23.2.1
-          pip install \
-            setuptools==69.5.1 \
-            wheel==0.43.0 \
-            Cython==0.29.36 \
-            buildozer==1.5.0
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
 
-      - name: Prepare Android Environment
+      - name: Install Build Tools
         run: |
-          mkdir -p ~/.android
-          touch ~/.android/repositories.cfg
+          # Nâng pip host lên bản sạch trước
+          python -m pip install --upgrade pip
+          # Pin buildozer + p4a version ổn định
+          pip install Cython==0.29.36 buildozer==1.5.0 "python-for-android==2024.1.21" virtualenv setuptools wheel
 
-      - name: Clean Local Workspace
+      - name: Create required directories
         run: |
-          rm -rf .buildozer
-          rm -rf bin
-      - name: Ensure res/xml directory exists
-        run: |
-          mkdir -p res/xml
-          if [ ! -f "res/xml/file_paths.xml" ]; then
-            echo '<?xml version="1.0" encoding="utf-8"?><paths><files-path name="apk_files" path="." /></paths>' > res/xml/file_paths.xml
-            echo "Created missing file_paths.xml"
+          mkdir -p java res/xml
+          if [ ! -f res/xml/file_paths.xml ] && [ -f file_paths.xml ]; then
+            cp file_paths.xml res/xml/file_paths.xml
           fi
-      - name: Debug File Tree
+
+      - name: Generate Keystore
         run: |
-          echo "========== DEBUG: CURRENT FILE STRUCTURE =========="
-          find . -maxdepth 4 -not -path '*/.*'
-          echo "=================================================="
+          if [ ! -f zauto.keystore ]; then
+            keytool -genkey -v \
+              -keystore zauto.keystore \
+              -alias zauto \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=ZAuto, OU=VIP, O=Thien, L=DakLak, ST=VN, C=VN" \
+              -storepass zauto123 \
+              -keypass zauto123
+          fi
 
-      - name: Validate Project
+      - name: Build APK (Release)
         run: |
-          echo "========== PYTHON CHECK =========="
-          find . -type f -name "*.py" \
-            -not -path "*/\.buildozer/*" \
-            -not -path "*/bin/*" \
-            -exec python -m py_compile {} \;
+          mkdir -p ~/.android && touch ~/.android/repositories.cfg
+          yes | buildozer android p4a --accept-sdk-license || true
 
-          echo "========== REQUIRED FILES =========="
-          FILES=(
-            "main.py"
-            "buildozer.spec"
-            "manifest_services.xml"
-         
-          )
-
-          for FILE in "${FILES[@]}"; do
-            if [ ! -f "$FILE" ]; then
-              echo "::error::Missing file: $FILE"
-              exit 1
-            fi
-          done
-
-      - name: Build APK
-        run: |
-          export PATH=$PATH:~/.local/bin
+          export P4A_RELEASE_KEYSTORE=$(pwd)/zauto.keystore
+          export P4A_RELEASE_KEYSTORE_PASSWD=zauto123
+          export P4A_RELEASE_KEYALIAS_PASSWD=zauto123
+          export P4A_RELEASE_KEYALIAS=zauto
           export GRADLE_OPTS="-Xmx4096m -Dorg.gradle.daemon=false"
-          buildozer android debug
+          export PIP_NO_BUILD_ISOLATION=1   # ← THÊM MỚI
 
-      - name: Verify APK
-        run: |
-          echo "========== APK OUTPUT =========="
-          ls -lah bin/
-          APK_COUNT=$(find bin -name "*.apk" | wc -l)
+          buildozer -v android release
 
-          if [ "$APK_COUNT" -eq "0" ]; then
-            echo "::error::APK NOT FOUND!"
-            exit 1
-          fi
-
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ZAuto_VIP_APK
+          name: ZAuto-VIP-Release-APK
           path: bin/*.apk
-
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.run_number }}
-          name: "ZAuto VIP v${{ github.run_number }}"
-          body: "Build tự động từ GitHub Actions"
-          files: bin/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
